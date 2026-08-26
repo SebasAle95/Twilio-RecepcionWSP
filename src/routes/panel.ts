@@ -1,7 +1,7 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import fs from 'fs';
 import { obtenerRegistros, EXCEL_PATH } from '../services/excel';
-import { todasLasVistas, Vista } from '../services/vistas';
+import { vistaDiaria, vistaSemanal, vistaMensual } from '../services/vistas';
 import { renderPanel } from '../views/panel';
 
 export const panelRouter = Router();
@@ -32,16 +32,17 @@ function exigirClave(req: Request, res: Response, next: NextFunction): void {
 panelRouter.get('/', exigirClave, async (req, res) => {
   try {
     const registros = await obtenerRegistros();
-    const vistas: Vista[] = todasLasVistas(registros);
 
-    const actualizado = registros.length
-      ? registros.reduce((max, r) => (r.actualizado > max ? r.actualizado : max), '')
+    const ultimaCarga = registros.length
+      ? registros.reduce((max, r) => (r.recibido > max ? r.recibido : max), '')
       : null;
 
     res.type('text/html; charset=utf-8').send(renderPanel({
-      vistas,
+      diaria:         vistaDiaria(registros),
+      semanal:        vistaSemanal(registros),
+      mensual:        vistaMensual(registros),
       totalRegistros: registros.length,
-      actualizado,
+      ultimaCarga,
       clave: String(req.query.clave),
     }));
   } catch (e: any) {

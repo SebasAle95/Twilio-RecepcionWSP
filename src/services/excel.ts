@@ -3,13 +3,15 @@ import path from 'path';
 import fs from 'fs';
 import { Relevamiento } from '../types/relevamiento';
 import {
-  Registro, Vista, aTexto, aClave, deTexto, todasLasVistas,
+  Registro, Vista, VistaDiaria,
+  aTexto, conHora, aClave, deTexto,
+  vistaDiaria, vistaSemanal, vistaMensual,
 } from './vistas';
 
 /**
  * Railway define RAILWAY_VOLUME_MOUNT_PATH cuando hay un volumen montado.
- * Ahí el archivo sobrevive a los reinicios; sin volumen cae en ./data, que es
- * efímero y sirve solo para desarrollo local.
+ * Ahi el archivo sobrevive a los reinicios; sin volumen cae en ./data, que es
+ * efimero y sirve solo para desarrollo local.
  */
 const DATA_DIR = process.env.RAILWAY_VOLUME_MOUNT_PATH
   || process.env.DATA_DIR
@@ -34,11 +36,11 @@ async function obtenerWorkbook(): Promise<ExcelJS.Workbook> {
 // ── Hoja Datos (fuente de verdad) ────────────────────────────────────────────
 
 const COLUMNAS_DATOS: Partial<ExcelJS.Column>[] = [
-  { header: 'Fecha',       key: 'fecha',       width: 14 },
-  { header: 'Local',       key: 'local',       width: 26 },
-  { header: 'Cantidad',    key: 'cantidad',    width: 12 },
-  { header: 'Remitente',   key: 'remitente',   width: 22 },
-  { header: 'Actualizado', key: 'actualizado', width: 20 },
+  { header: 'Fecha',     key: 'fecha',     width: 14 },
+  { header: 'Recibido',  key: 'recibido',  width: 20 },
+  { header: 'Local',     key: 'local',     width: 26 },
+  { header: 'Cantidad',  key: 'cantidad',  width: 12 },
+  { header: 'Remitente', key: 'remitente', width: 22 },
 ];
 
 function leerDatos(wb: ExcelJS.Workbook): Registro[] {
@@ -50,51 +52,18 @@ function leerDatos(wb: ExcelJS.Workbook): Registro[] {
     if (nro === 1) return; // encabezado
 
     const fecha = String(row.getCell(1).value ?? '').trim();
-    const local = String(row.getCell(2).value ?? '').trim();
+    const local = String(row.getCell(3).value ?? '').trim();
     if (!fecha || !local) return;
 
     registros.push({
       fecha,
+      recibido:  String(row.getCell(2).value ?? '').trim(),
       local,
-      cantidad:    Number(row.getCell(3).value ?? 0),
-      remitente:   String(row.getCell(4).value ?? ''),
-      actualizado: String(row.getCell(5).value ?? ''),
+      cantidad:  Number(row.getCell(4).value ?? 0),
+      remitente: String(row.getCell(5).value ?? ''),
     });
   });
   return registros;
-}
-
-/**
- * Aplica el relevamiento sobre los registros existentes.
- * Si ya hay un dato para esa fecha y local, se pisa (es una corrección).
- */
-function upsert(registros: Registro[], rel: Relevamiento): { nuevos: number; corregidos: number } {
-  const fecha = aTexto(rel.fecha);
-  const ahora = new Date().toLocaleString('es-AR');
-
-  let nuevos = 0;
-  let corregidos = 0;
-
-  for (const local of rel.locales) {
-    const i = registros.findIndex(r => r.fecha === fecha && r.local === local.nombre);
-    const registro: Registro = {
-      fecha,
-      local:       local.nombre,
-      cantidad:    local.cantidad,
-      remitente:   rel.remitente,
-      actualizado: ahora,
-    };
-
-    if (i >= 0) {
-      if (registros[i].cantidad !== local.cantidad) corregidos++;
-      registros[i] = registro;
-    } else {
-      registros.push(registro);
-      nuevos++;
-    }
-  }
-
-  return { nuevos, corregidos };
 }
 
 // ── Escritura de hojas ───────────────────────────────────────────────────────
@@ -118,12 +87,43 @@ function escribirDatos(wb: ExcelJS.Workbook, registros: Registro[]): void {
   ws.columns = COLUMNAS_DATOS;
 
   const ordenados = [...registros].sort((a, b) => {
-    const fa = aClave(deTexto(a.fecha));
-    const fb = aClave(deTexto(b.fecha));
+    const fa = aClave(deTexto(a.fecha)) + a.recibido.slice(11);
+    const fb = aClave(deTexto(b.fecha)) + b.recibido.slice(11);
     return fa === fb ? a.local.localeCompare(b.local) : fa.localeCompare(fb);
   });
 
   for (const r of ordenados) ws.addRow(r);
+  estilarEncabezado(ws);
+}
+
+/** Hoja Diario: cada carga con su hora, y el acumulado del dia debajo. */
+function escribirDiario(wb: ExcelJS.Workbook, vista: VistaDiaria): void {
+  const ws = recrearHoja(wb, 'Diario');
+
+  ws.columns = [
+    { header: 'Fecha', key: 'fecha', width: 14 },
+    { header: 'Hora',  key: 'hora',  width: 10 },
+    ...vista.locales.map(l => ({ header: l, key: l, width: 16 })),
+    { header: 'Total', key: '__total', width: 12 },
+  ];
+
+  for (const dia of vista.dias) {
+    for (const carga of dia.cargas) {
+      const row: Record<string, string | number> = { fecha: dia.fecha, hora: carga.hora };
+      vista.locales.forEach((l, i) => { row[l] = carga.valores[i]; });
+      row.__total = carga.total;
+      ws.addRow(row);
+    }
+
+    const row: Record<string, string | number> = { fecha: dia.fecha, hora: 'TOTAL DIA' };
+    vista.locales.forEach((l, i) => { row[l] = dia.totales[i]; });
+    row.__total = dia.totalGeneral;
+    const filaTotal = ws.addRow(row);
+    filaTotal.font = { bold: true };
+    filaTotal.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE9F2EF' } };
+  }
+
+  ws.getColumn('__total').font = { bold: true };
   estilarEncabezado(ws);
 }
 
@@ -143,18 +143,16 @@ function escribirVista(wb: ExcelJS.Workbook, vista: Vista): void {
     ws.addRow(row);
   }
 
-  // Fila de totales al pie
   const pie: Record<string, string | number> = { periodo: 'TOTAL' };
   vista.locales.forEach((l, i) => { pie[l] = vista.totales[i]; });
   pie.__total = vista.totalGeneral;
-  const filaPie = ws.addRow(pie);
-  filaPie.font = { bold: true };
+  ws.addRow(pie).font = { bold: true };
 
   ws.getColumn('__total').font = { bold: true };
   estilarEncabezado(ws);
 }
 
-// ── API pública ──────────────────────────────────────────────────────────────
+// ── API publica ──────────────────────────────────────────────────────────────
 
 /** Los registros guardados, para el panel web. */
 export async function obtenerRegistros(): Promise<Registro[]> {
@@ -165,8 +163,8 @@ export async function obtenerRegistros(): Promise<Registro[]> {
 }
 
 /**
- * Serializa los mensajes: dos relevamientos simultáneos leyendo el mismo
- * archivo se pisarían entre sí.
+ * Serializa los mensajes: dos relevamientos simultaneos leyendo el mismo
+ * archivo se pisarian entre si.
  */
 let cola: Promise<unknown> = Promise.resolve();
 
@@ -178,15 +176,28 @@ export function agregarAlExcel(relevamiento: Relevamiento): Promise<void> {
 
 async function procesar(relevamiento: Relevamiento): Promise<void> {
   const wb = await obtenerWorkbook();
-
   const registros = leerDatos(wb);
-  const { nuevos, corregidos } = upsert(registros, relevamiento);
+
+  // Cada mensaje se agrega: nunca reemplaza lo anterior.
+  const recibido = conHora(new Date());
+  for (const local of relevamiento.locales) {
+    registros.push({
+      fecha:     aTexto(relevamiento.fecha),
+      recibido,
+      local:     local.nombre,
+      cantidad:  local.cantidad,
+      remitente: relevamiento.remitente,
+    });
+  }
 
   escribirDatos(wb, registros);
-  for (const vista of todasLasVistas(registros)) escribirVista(wb, vista);
+  escribirDiario(wb, vistaDiaria(registros));
+  escribirVista(wb, vistaSemanal(registros));
+  escribirVista(wb, vistaMensual(registros));
 
   await wb.xlsx.writeFile(EXCEL_PATH);
   console.log(
-    `Excel actualizado: ${nuevos} nuevos, ${corregidos} corregidos, ${registros.length} registros en total`,
+    `Excel actualizado: carga de ${relevamiento.locales.length} locales, ` +
+    `${registros.length} registros acumulados`,
   );
 }
