@@ -84,6 +84,43 @@ async function buscarArchivoExistente(drive: ReturnType<typeof google.drive>, no
   return res.data.files?.[0]?.id ?? null;
 }
 
+/**
+ * Baja el Excel desde Drive al disco local.
+ *
+ * Railway borra el disco en cada reinicio, así que Drive es la única copia
+ * persistente. Sin esto, el primer mensaje después de un reinicio armaría un
+ * Excel vacío y pisaría todo el historial al subirlo.
+ *
+ * @returns true si lo bajó, false si todavía no existe en Drive.
+ */
+export async function descargarDeGoogleDrive(destino: string): Promise<boolean> {
+  const auth = getAuth();
+  const drive = google.drive({ version: 'v3', auth });
+
+  const existingId = await buscarArchivoExistente(drive, FILE_NAME);
+  if (!existingId) {
+    console.log('Google Drive: no hay archivo previo, se empieza de cero');
+    return false;
+  }
+
+  const res = await drive.files.get(
+    { fileId: existingId, alt: 'media' },
+    { responseType: 'stream' },
+  );
+
+  await new Promise<void>((resolve, reject) => {
+    const out = fs.createWriteStream(destino);
+    (res.data as NodeJS.ReadableStream)
+      .on('error', reject)
+      .pipe(out)
+      .on('finish', () => resolve())
+      .on('error', reject);
+  });
+
+  console.log(`Google Drive: historial recuperado (id: ${existingId})`);
+  return true;
+}
+
 export async function subirAGoogleDrive(excelPath: string): Promise<string> {
   const auth = getAuth();
   const drive = google.drive({ version: 'v3', auth });
