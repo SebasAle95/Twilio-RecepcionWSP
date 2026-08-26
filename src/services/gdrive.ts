@@ -6,11 +6,18 @@ const FOLDER_ID = process.env.GDRIVE_FOLDER_ID || '18uruBWGJEx52A8wulNG8QgPVB6Ex
 const FILE_NAME = 'relevamientos.xlsx';
 
 function getAuth() {
-  const raw = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
-  if (!raw) throw new Error('Falta la variable GOOGLE_SERVICE_ACCOUNT_JSON');
-  const credentials = JSON.parse(raw);
+  const clientEmail  = process.env.GOOGLE_CLIENT_EMAIL;
+  const privateKey   = process.env.GOOGLE_PRIVATE_KEY?.replace(/\\n/g, '\n');
+
+  if (!clientEmail || !privateKey) {
+    throw new Error('Faltan variables GOOGLE_CLIENT_EMAIL o GOOGLE_PRIVATE_KEY');
+  }
+
   return new google.auth.GoogleAuth({
-    credentials,
+    credentials: {
+      client_email: clientEmail,
+      private_key:  privateKey,
+    },
     scopes: ['https://www.googleapis.com/auth/drive'],
   });
 }
