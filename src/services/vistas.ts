@@ -36,6 +36,24 @@ export interface VistaDiaria {
   dias:    Dia[];       // mas reciente primero
 }
 
+/** Un dia dentro de la grilla del calendario. */
+export interface DiaCalendario {
+  fecha:  string;  // DD-MM-YYYY
+  dia:    number;
+  cargas: number;
+  total:  number;
+  nivel:  number;  // 1-4 segun el total, para el sombreado
+}
+
+/** Un mes con su grilla de 6 semanas. `null` = celda fuera del mes. */
+export interface MesCalendario {
+  clave:        string;                    // YYYY-MM
+  etiqueta:     string;                    // "Agosto 2026"
+  celdas:       (DiaCalendario | null)[];  // 42 celdas, arranca lunes
+  diasConCarga: number;
+  totalMes:     number;
+}
+
 /** Tabla pivote simple: filas = periodo, columnas = locales, celdas = suma. */
 export interface Vista {
   titulo:       string;
@@ -186,4 +204,73 @@ export function vistaMensual(registros: Registro[]): Vista {
     clave:    `${f.getFullYear()}-${pad(f.getMonth() + 1)}`,
     etiqueta: `${MESES[f.getMonth()]} ${f.getFullYear()}`,
   }));
+}
+
+/**
+ * Grilla mensual que marca en que dias hubo carga y en cuales no.
+ * Devuelve un mes por cada mes con datos, del mas reciente al mas viejo.
+ */
+export function vistaCalendario(registros: Registro[]): MesCalendario[] {
+  if (!registros.length) return [];
+
+  // fecha -> { cargas (mensajes distintos), total }
+  const porFecha = new Map<string, { recibidos: Set<string>; total: number }>();
+
+  for (const r of registros) {
+    if (!porFecha.has(r.fecha)) porFecha.set(r.fecha, { recibidos: new Set(), total: 0 });
+    const d = porFecha.get(r.fecha)!;
+    d.recibidos.add(r.recibido);
+    d.total += r.cantidad;
+  }
+
+  const maximo = Math.max(...[...porFecha.values()].map(d => d.total), 1);
+  const nivelDe = (total: number) => Math.min(4, Math.ceil((total / maximo) * 4)) || 1;
+
+  // Meses que tienen al menos un dia con datos
+  const claves = new Set<string>();
+  for (const fecha of porFecha.keys()) {
+    const f = deTexto(fecha);
+    claves.add(`${f.getFullYear()}-${pad(f.getMonth() + 1)}`);
+  }
+
+  return [...claves].sort().reverse().map(clave => {
+    const [anio, mes] = clave.split('-').map(Number);
+    const primero = new Date(anio, mes - 1, 1);
+    const diasEnMes = new Date(anio, mes, 0).getDate();
+
+    // Lunes = 0 para que la grilla arranque en lunes
+    const offset = (primero.getDay() + 6) % 7;
+
+    const celdas: (DiaCalendario | null)[] = Array(42).fill(null);
+    let diasConCarga = 0;
+    let totalMes = 0;
+
+    for (let dia = 1; dia <= diasEnMes; dia++) {
+      const fecha = `${pad(dia)}-${pad(mes)}-${anio}`;
+      const datos = porFecha.get(fecha);
+
+      celdas[offset + dia - 1] = datos
+        ? {
+            fecha,
+            dia,
+            cargas: datos.recibidos.size,
+            total:  datos.total,
+            nivel:  nivelDe(datos.total),
+          }
+        : { fecha, dia, cargas: 0, total: 0, nivel: 0 };
+
+      if (datos) {
+        diasConCarga++;
+        totalMes += datos.total;
+      }
+    }
+
+    return {
+      clave,
+      etiqueta: `${MESES[mes - 1]} ${anio}`,
+      celdas,
+      diasConCarga,
+      totalMes,
+    };
+  });
 }

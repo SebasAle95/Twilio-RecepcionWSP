@@ -1,9 +1,10 @@
-import { Vista, VistaDiaria } from '../services/vistas';
+import { Vista, VistaDiaria, MesCalendario } from '../services/vistas';
 
 interface Datos {
   diaria:         VistaDiaria;
   semanal:        Vista;
   mensual:        Vista;
+  calendario:     MesCalendario[];
   totalRegistros: number;
   ultimaCarga:    string | null;
   clave:          string;
@@ -33,7 +34,7 @@ function tablaDiaria(v: VistaDiaria): string {
 
   const cuerpo = v.dias.map(dia => {
     const cargas = dia.cargas.map((c, i) => `
-        <tr>
+        <tr${i === 0 ? ` id="dia-${esc(dia.fecha)}"` : ''}>
           <th scope="row" class="hora">
             ${i === 0 ? `<span class="fecha">${esc(dia.fecha)}</span>` : ''}
             <span class="marca">${esc(c.hora)}</span>
@@ -104,6 +105,58 @@ function tablaPivote(v: Vista): string {
           <tbody>${filas}</tbody>
           <tfoot>${pie}</tfoot>
         </table>
+      </div>`;
+}
+
+// ── Pestaña calendario ───────────────────────────────────────────────────────
+
+const DIAS_SEMANA = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
+
+function mesCalendario(m: MesCalendario, visible: boolean): string {
+  const celdas = m.celdas.map(c => {
+    if (!c) return '<div class="dia fuera"></div>';
+
+    if (c.cargas === 0) {
+      return `<div class="dia sin-carga"><span class="num">${c.dia}</span></div>`;
+    }
+
+    const cargas = `${c.cargas} ${c.cargas === 1 ? 'carga' : 'cargas'}`;
+    return `<button class="dia con-carga n${c.nivel}" data-fecha="${esc(c.fecha)}"
+              title="${esc(c.fecha)} · ${cargas} · total ${nf.format(c.total)}">
+              <span class="num">${c.dia}</span>
+              <span class="valor">${nf.format(c.total)}</span>
+              <span class="puntos">${'·'.repeat(Math.min(c.cargas, 4))}</span>
+            </button>`;
+  }).join('');
+
+  return `
+      <div class="mes" data-mes="${esc(m.clave)}"${visible ? '' : ' hidden'}>
+        <div class="grilla-encabezado">
+          ${DIAS_SEMANA.map(d => `<span>${d}</span>`).join('')}
+        </div>
+        <div class="grilla">${celdas}</div>
+        <p class="resumen-mes">
+          ${m.diasConCarga} ${m.diasConCarga === 1 ? 'día' : 'días'} con carga ·
+          total ${nf.format(m.totalMes)}
+        </p>
+      </div>`;
+}
+
+function calendario(meses: MesCalendario[]): string {
+  if (!meses.length) return '';
+
+  // El primero es el mes mas reciente
+  const cuerpo = meses.map((m, i) => mesCalendario(m, i === 0)).join('');
+
+  return `
+      <div class="cal">
+        <div class="nav-mes">
+          <button id="mes-anterior" aria-label="Mes anterior"${meses.length < 2 ? ' disabled' : ''}>&#8249;</button>
+          <span id="mes-actual">${esc(meses[0].etiqueta)}</span>
+          <button id="mes-siguiente" aria-label="Mes siguiente" disabled>&#8250;</button>
+        </div>
+        ${cuerpo}
+        <p class="leyenda">Tocá un día con carga para ver el detalle.</p>
       </div>`;
 }
 
@@ -320,6 +373,116 @@ const CSS = `
     color: var(--muted);
   }
 
+  /* Calendario */
+  .cal { padding: 1.25rem; }
+
+  .nav-mes {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: .75rem;
+    margin-bottom: 1.1rem;
+  }
+  .nav-mes span {
+    min-width: 11rem;
+    text-align: center;
+    font-weight: 600;
+    font-size: 1rem;
+  }
+  .nav-mes button {
+    appearance: none;
+    width: 2rem;
+    height: 2rem;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--surface);
+    color: var(--ink);
+    font-size: 1.1rem;
+    line-height: 1;
+    cursor: pointer;
+    transition: background .15s ease;
+  }
+  .nav-mes button:hover:not(:disabled) { background: var(--accent-soft); }
+  .nav-mes button:disabled { opacity: .3; cursor: default; }
+  .nav-mes button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+  .grilla-encabezado, .grilla {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: .3rem;
+  }
+
+  .grilla-encabezado {
+    margin-bottom: .4rem;
+  }
+  .grilla-encabezado span {
+    text-align: center;
+    font-size: .7rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: .05em;
+    color: var(--muted);
+  }
+
+  .dia {
+    aspect-ratio: 1;
+    min-height: 3.1rem;
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: .05rem;
+    padding: .2rem;
+    font: inherit;
+  }
+
+  .dia.fuera { border: 0; }
+
+  .dia.sin-carga { color: var(--faint); background: transparent; }
+  .dia.sin-carga .num { font-size: .8rem; }
+
+  .dia.con-carga {
+    cursor: pointer;
+    border-color: transparent;
+    color: var(--accent);
+    background: var(--accent-soft);
+    transition: transform .12s ease, box-shadow .12s ease;
+  }
+  .dia.con-carga:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 2px 8px rgba(15, 110, 92, .18);
+  }
+  .dia.con-carga:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+  /* Sombreado por volumen del dia */
+  .dia.n1 { background: color-mix(in srgb, var(--accent) 10%, var(--surface)); }
+  .dia.n2 { background: color-mix(in srgb, var(--accent) 22%, var(--surface)); }
+  .dia.n3 { background: color-mix(in srgb, var(--accent) 38%, var(--surface)); }
+  .dia.n4 { background: color-mix(in srgb, var(--accent) 55%, var(--surface)); color: #fff; }
+
+  @media (prefers-color-scheme: dark) {
+    .dia.n4 { color: var(--ground); }
+  }
+
+  .dia .num { font-size: .78rem; font-weight: 600; opacity: .85; }
+  .dia .valor {
+    font-size: .95rem;
+    font-weight: 650;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.1;
+  }
+  .dia .puntos { font-size: .7rem; line-height: .6; opacity: .7; letter-spacing: .1em; }
+
+  .resumen-mes, .leyenda {
+    margin: 1rem 0 0;
+    text-align: center;
+    font-size: .8rem;
+    color: var(--muted);
+  }
+  .leyenda { margin-top: .4rem; font-size: .75rem; }
+
   .vacio {
     background: var(--surface);
     border: 1px solid var(--border);
@@ -337,15 +500,20 @@ const CSS = `
   }
 `;
 
-const JS = `
+const JS = (etiquetasMeses: string[]) => `
   const tabs = document.querySelectorAll('.tabs button');
+
+  function abrirTab(nombre) {
+    tabs.forEach(t => {
+      const activo = t.dataset.panel === nombre;
+      t.setAttribute('aria-selected', String(activo));
+      document.getElementById(t.dataset.panel).hidden = !activo;
+    });
+  }
+
   tabs.forEach(tab => {
     tab.addEventListener('click', () => {
-      tabs.forEach(t => {
-        const activo = t === tab;
-        t.setAttribute('aria-selected', String(activo));
-        document.getElementById(t.dataset.panel).hidden = !activo;
-      });
+      abrirTab(tab.dataset.panel);
       try { localStorage.setItem('tab', tab.dataset.panel); } catch (e) {}
     });
   });
@@ -353,11 +521,48 @@ const JS = `
   // Recordar la pestaña elegida entre visitas
   try {
     const guardada = localStorage.getItem('tab');
-    if (guardada) {
-      const tab = document.querySelector('.tabs button[data-panel="' + guardada + '"]');
-      if (tab) tab.click();
-    }
+    if (guardada && document.getElementById(guardada)) abrirTab(guardada);
   } catch (e) {}
+
+  // ── Calendario ────────────────────────────────────────────────────────────
+  const meses = [...document.querySelectorAll('.mes')];  // [0] = mas reciente
+
+  if (meses.length) {
+    const anterior  = document.getElementById('mes-anterior');
+    const siguiente = document.getElementById('mes-siguiente');
+    const titulo    = document.getElementById('mes-actual');
+    const etiquetas = ${JSON.stringify(etiquetasMeses)};
+    let i = 0;
+
+    function mostrarMes(nuevo) {
+      i = nuevo;
+      meses.forEach((m, k) => { m.hidden = k !== i; });
+      titulo.textContent = etiquetas[i];
+      // El indice crece hacia el pasado
+      siguiente.disabled = i === 0;
+      anterior.disabled  = i === meses.length - 1;
+    }
+
+    anterior.addEventListener('click',  () => { if (i < meses.length - 1) mostrarMes(i + 1); });
+    siguiente.addEventListener('click', () => { if (i > 0) mostrarMes(i - 1); });
+
+    // Tocar un dia lleva a su detalle en la pestaña Diario
+    document.querySelectorAll('.dia.con-carga').forEach(btn => {
+      btn.addEventListener('click', () => {
+        abrirTab('diario');
+        try { localStorage.setItem('tab', 'diario'); } catch (e) {}
+
+        const fila = document.getElementById('dia-' + btn.dataset.fecha);
+        if (fila) {
+          fila.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          fila.animate(
+            [{ background: 'var(--accent-soft)' }, { background: 'transparent' }],
+            { duration: 1600, easing: 'ease-out' },
+          );
+        }
+      });
+    });
+  }
 `;
 
 export function renderPanel(d: Datos): string {
@@ -374,11 +579,13 @@ export function renderPanel(d: Datos): string {
       <button role="tab" aria-selected="true"  data-panel="diario">Diario</button>
       <button role="tab" aria-selected="false" data-panel="semanal">Semanal</button>
       <button role="tab" aria-selected="false" data-panel="mensual">Mensual</button>
+      <button role="tab" aria-selected="false" data-panel="calendario">Calendario</button>
     </div>
 
-    <div class="bloque panel" id="diario"  role="tabpanel">${tablaDiaria(d.diaria)}</div>
-    <div class="bloque panel" id="semanal" role="tabpanel" hidden>${tablaPivote(d.semanal)}</div>
-    <div class="bloque panel" id="mensual" role="tabpanel" hidden>${tablaPivote(d.mensual)}</div>
+    <div class="bloque panel" id="diario"     role="tabpanel">${tablaDiaria(d.diaria)}</div>
+    <div class="bloque panel" id="semanal"    role="tabpanel" hidden>${tablaPivote(d.semanal)}</div>
+    <div class="bloque panel" id="mensual"    role="tabpanel" hidden>${tablaPivote(d.mensual)}</div>
+    <div class="bloque panel" id="calendario" role="tabpanel" hidden>${calendario(d.calendario)}</div>
   ` : vacio;
 
   return `<!doctype html>
@@ -401,7 +608,7 @@ export function renderPanel(d: Datos): string {
     </header>
     ${cuerpo}
   </div>
-  ${hayDatos ? `<script>${JS}</script>` : ''}
+  ${hayDatos ? `<script>${JS(d.calendario.map(m => m.etiqueta))}</script>` : ''}
 </body>
 </html>`;
 }

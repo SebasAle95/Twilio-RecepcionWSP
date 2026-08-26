@@ -42,6 +42,13 @@ Le Pain Quotidian: 12
 Deli Hause: 7
 Civediamo: 30`,
   },
+  {
+    etiqueta: 'Mes anterior — para probar la navegacion del calendario',
+    mensaje: `RELEVAMIENTO cada LOCAL 15-07-2026
+Le Pain Quotidien: 30
+Deli House: 12
+Civediamo: 60`,
+  },
 ];
 
 async function main() {

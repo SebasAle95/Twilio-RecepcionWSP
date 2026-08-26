@@ -1,7 +1,7 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import fs from 'fs';
 import { obtenerRegistros, EXCEL_PATH } from '../services/excel';
-import { vistaDiaria, vistaSemanal, vistaMensual } from '../services/vistas';
+import { vistaDiaria, vistaSemanal, vistaMensual, vistaCalendario } from '../services/vistas';
 import { renderPanel } from '../views/panel';
 
 export const panelRouter = Router();
@@ -41,6 +41,7 @@ panelRouter.get('/', exigirClave, async (req, res) => {
       diaria:         vistaDiaria(registros),
       semanal:        vistaSemanal(registros),
       mensual:        vistaMensual(registros),
+      calendario:     vistaCalendario(registros),
       totalRegistros: registros.length,
       ultimaCarga,
       clave: String(req.query.clave),
