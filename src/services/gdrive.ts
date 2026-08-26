@@ -14,7 +14,7 @@ function getAuth() {
   console.log(`[gdrive] PRIVATE_KEY: ${rawKey ? 'OK (len=' + rawKey.length + ')' : 'FALTA'}`);
 
   if (!clientEmail) throw new Error('Falta variable GOOGLE_CLIENT_EMAIL');
-  if (!privateKey)  throw new Error('Falta variable GOOGLE_PRIVATE_KEY');}
+  if (!privateKey)  throw new Error('Falta variable GOOGLE_PRIVATE_KEY');
 
   return new google.auth.GoogleAuth({
     credentials: {
