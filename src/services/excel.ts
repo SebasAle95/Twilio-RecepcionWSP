@@ -2,6 +2,7 @@ import ExcelJS from 'exceljs';
 import path from 'path';
 import fs from 'fs';
 import { Relevamiento } from '../types/relevamiento';
+import { subirAGoogleDrive } from './gdrive';
 
 const DATA_DIR = path.join(process.cwd(), 'data');
 const EXCEL_PATH = path.join(DATA_DIR, 'relevamientos.xlsx');
@@ -96,4 +97,7 @@ export async function agregarAlExcel(relevamiento: Relevamiento): Promise<void> 
 
   await wb.xlsx.writeFile(EXCEL_PATH);
   console.log(`Excel actualizado: ${EXCEL_PATH}`);
+
+  const url = await subirAGoogleDrive(EXCEL_PATH);
+  console.log(`Google Drive: ${url}`);
 }
