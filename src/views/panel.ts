@@ -25,80 +25,52 @@ function celda(n: number): string {
   return `<td${n === 0 ? ' class="cero"' : ''}>${nf.format(n)}</td>`;
 }
 
-// ── Pestaña diaria: linea de tiempo + acumulado ──────────────────────────────
+/**
+ * Todas las tablas van con los locales como filas y el tiempo como columnas.
+ *
+ * Al reves —locales como columnas— la tabla queda de 13 columnas y obliga a
+ * un scroll horizontal donde el nombre del local se pierde de vista. Los
+ * locales son muchos y fijos; los periodos, pocos.
+ */
+function tabla(
+  encabezadoFila: string,
+  columnas: { etiqueta: string; sub?: string }[],
+  locales: string[],
+  /** valorDe(indiceLocal, indiceColumna) */
+  valorDe: (l: number, c: number) => number,
+  totalesPorLocal: number[],
+  totalGeneral: number,
+): string {
+  const cabecera = columnas.map(c => `
+            <th scope="col">
+              <span class="col-titulo">${esc(c.etiqueta)}</span>
+              ${c.sub ? `<span class="col-sub">${esc(c.sub)}</span>` : ''}
+            </th>`).join('');
 
-function tablaDiaria(v: VistaDiaria): string {
-  if (!v.dias.length) return '';
+  const filas = locales.map((local, l) => `
+          <tr>
+            <th scope="row">${esc(local)}</th>
+            ${columnas.map((_, c) => celda(valorDe(l, c))).join('')}
+            <td class="total">${nf.format(totalesPorLocal[l])}</td>
+          </tr>`).join('');
 
-  const encabezados = v.locales.map(l => `<th>${esc(l)}</th>`).join('');
-
-  const cuerpo = v.dias.map(dia => {
-    const cargas = dia.cargas.map((c, i) => `
-        <tr${i === 0 ? ` id="dia-${esc(dia.fecha)}"` : ''}>
-          <th scope="row" class="hora">
-            ${i === 0 ? `<span class="fecha">${esc(dia.fecha)}</span>` : ''}
-            <span class="marca">${esc(c.hora)}</span>
-          </th>
-          ${c.valores.map(celda).join('')}
-          <td class="total">${nf.format(c.total)}</td>
-        </tr>`).join('');
-
-    const total = `
-        <tr class="acumulado">
-          <th scope="row">
-            Total del día
-            <span class="cuenta">${dia.cargas.length} ${dia.cargas.length === 1 ? 'carga' : 'cargas'}</span>
-          </th>
-          ${dia.totales.map(n => `<td>${nf.format(n)}</td>`).join('')}
-          <td class="total">${nf.format(dia.totalGeneral)}</td>
-        </tr>`;
-
-    return cargas + total;
-  }).join('');
-
-  return `
-      <div class="scroll">
-        <table>
-          <thead>
-            <tr>
-              <th scope="col">Fecha y hora</th>
-              ${encabezados}
-              <th scope="col" class="total">Total</th>
-            </tr>
-          </thead>
-          <tbody>${cuerpo}</tbody>
-        </table>
-      </div>`;
-}
-
-// ── Pestañas semanal y mensual ───────────────────────────────────────────────
-
-function tablaPivote(v: Vista): string {
-  if (!v.filas.length) return '';
-
-  const encabezados = v.locales.map(l => `<th>${esc(l)}</th>`).join('');
-
-  const filas = v.filas.map(f => `
-        <tr>
-          <th scope="row">${esc(f.etiqueta)}</th>
-          ${f.valores.map(celda).join('')}
-          <td class="total">${nf.format(f.total)}</td>
-        </tr>`).join('');
+  const totalesColumna = columnas.map((_, c) =>
+    locales.reduce((acc, _l, l) => acc + valorDe(l, c), 0));
 
   const pie = `
-        <tr class="acumulado">
-          <th scope="row">Total general</th>
-          ${v.totales.map(n => `<td>${nf.format(n)}</td>`).join('')}
-          <td class="total">${nf.format(v.totalGeneral)}</td>
-        </tr>`;
+          <tr class="acumulado">
+            <th scope="row">Total</th>
+            ${totalesColumna.map(n => `<td>${nf.format(n)}</td>`).join('')}
+            <td class="total">${nf.format(totalGeneral)}</td>
+          </tr>`;
 
   return `
       <div class="scroll">
         <table>
           <thead>
             <tr>
-              <th scope="col">${esc(v.periodo)}</th>
-              ${encabezados}
+              <th scope="col">${esc(encabezadoFila)}</th>
+              ${cabecera}
               <th scope="col" class="total">Total</th>
             </tr>
           </thead>
@@ -106,6 +78,56 @@ function tablaPivote(v: Vista): string {
           <tfoot>${pie}</tfoot>
         </table>
       </div>`;
+}
+
+// ── Pestaña diaria: una tarjeta por dia, con sus cargas ──────────────────────
+
+function tablaDiaria(v: VistaDiaria): string {
+  if (!v.dias.length) return '';
+
+  return v.dias.map(dia => {
+    const cargas = dia.cargas.length;
+
+    const cuerpo = tabla(
+      'Local',
+      dia.cargas.map((c, i) => ({ etiqueta: c.hora, sub: `carga ${i + 1}` })),
+      v.locales,
+      (l, c) => dia.cargas[c].valores[l],
+      dia.totales,
+      dia.totalGeneral,
+    );
+
+    return `
+    <section class="dia-tarjeta" id="dia-${esc(dia.fecha)}">
+      <header class="dia-cabecera">
+        <h2>${esc(dia.fecha)}</h2>
+        <p>
+          <strong>${nf.format(dia.totalGeneral)}</strong> personas ·
+          ${cargas} ${cargas === 1 ? 'carga' : 'cargas'}
+        </p>
+      </header>
+      ${cuerpo}
+    </section>`;
+  }).join('');
+}
+
+// ── Pestañas semanal y mensual ───────────────────────────────────────────────
+
+function tablaPivote(v: Vista): string {
+  if (!v.filas.length) return '';
+
+  // v.filas viene con un periodo por fila; acá el periodo pasa a ser columna.
+  return `
+    <section class="dia-tarjeta">
+      ${tabla(
+        'Local',
+        v.filas.map(f => ({ etiqueta: f.etiqueta })),
+        v.locales,
+        (l, c) => v.filas[c].valores[l],
+        v.totales,
+        v.totalGeneral,
+      )}
+    </section>`;
 }
 
 // ── Pestaña calendario ───────────────────────────────────────────────────────
@@ -291,6 +313,15 @@ const CSS = `
   .panel[hidden] { display: none; }
 
   .bloque {
+    background: transparent;
+    border: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+  }
+
+  /* Cada dia (o cada vista agregada) es una tarjeta */
+  .dia-tarjeta {
     background: var(--surface);
     border: 1px solid var(--border);
     border-radius: 10px;
@@ -298,29 +329,57 @@ const CSS = `
     overflow: hidden;
   }
 
+  .dia-cabecera {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: .5rem;
+    padding: .85rem 1.15rem;
+    border-bottom: 1px solid var(--border);
+  }
+  .dia-cabecera h2 {
+    margin: 0;
+    font-size: .95rem;
+    font-weight: 650;
+    color: var(--accent);
+    font-variant-numeric: tabular-nums;
+  }
+  .dia-cabecera p { margin: 0; font-size: .8rem; color: var(--muted); }
+  .dia-cabecera strong { color: var(--ink); font-variant-numeric: tabular-nums; }
+
+  /* El scroll horizontal solo aparece si hay muchas columnas */
   .scroll { overflow-x: auto; }
 
   table {
     width: 100%;
     border-collapse: collapse;
     font-variant-numeric: tabular-nums;
-    white-space: nowrap;
   }
 
   thead th {
-    position: sticky;
-    top: 0;
     background: var(--surface);
     border-bottom: 1px solid var(--border);
-    padding: .7rem 1rem;
-    font-size: .75rem;
+    padding: .6rem .9rem;
+    font-size: .72rem;
     font-weight: 600;
     text-align: right;
     color: var(--muted);
+    letter-spacing: .03em;
+    white-space: nowrap;
+    vertical-align: bottom;
+  }
+  .col-titulo { display: block; font-variant-numeric: tabular-nums; }
+  .col-sub {
+    display: block;
+    font-size: .62rem;
+    font-weight: 500;
     text-transform: uppercase;
-    letter-spacing: .04em;
+    letter-spacing: .06em;
+    opacity: .65;
   }
 
+  /* La primera columna queda fija; la sombra avisa que flota sobre el resto */
   thead th:first-child,
   tbody th,
   tfoot th {
@@ -330,48 +389,41 @@ const CSS = `
     background: var(--surface);
     text-align: left;
     font-weight: 550;
+    white-space: nowrap;
+    box-shadow: 1px 0 0 var(--border), 6px 0 8px -6px rgba(0, 0, 0, .18);
   }
-  thead th:first-child { z-index: 2; }
+  thead th:first-child {
+    z-index: 2;
+    text-transform: uppercase;
+    font-size: .72rem;
+  }
 
-  tbody th, tfoot th { padding: .6rem 1rem; }
+  tbody th, tfoot th { padding: .55rem .9rem; font-size: .875rem; }
 
   td {
-    padding: .6rem 1rem;
+    padding: .55rem .9rem;
     text-align: right;
     border-top: 1px solid var(--border);
+    font-size: .9rem;
+    white-space: nowrap;
   }
+
+  tbody tr:hover th,
+  tbody tr:hover td { background: var(--accent-soft); }
 
   .cero { color: var(--faint); }
   .total { font-weight: 650; }
-
-  /* Linea de tiempo: la hora de cada carga, con la fecha solo en la primera */
-  .hora { line-height: 1.35; }
-  .hora .fecha {
-    display: block;
-    font-size: .8rem;
-    font-weight: 650;
-    color: var(--accent);
-  }
-  .hora .marca {
-    display: block;
-    font-size: .875rem;
-    color: var(--muted);
-    font-variant-numeric: tabular-nums;
+  thead .total, tbody .total, tfoot .total {
+    border-left: 1px solid var(--border);
   }
 
-  /* Fila de acumulado */
+  /* Fila de totales */
   .acumulado th, .acumulado td {
     background: var(--accent-soft);
-    border-top: 1px solid var(--border);
+    border-top: 2px solid var(--border);
     font-weight: 650;
   }
   .acumulado th { color: var(--accent); }
-  .acumulado .cuenta {
-    display: block;
-    font-size: .75rem;
-    font-weight: 500;
-    color: var(--muted);
-  }
 
   /* Calendario */
   .cal { padding: 1.25rem; }

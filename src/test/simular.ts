@@ -15,25 +15,37 @@ const REMITENTE = 'whatsapp:+5493812345678';
 
 const CASOS: { etiqueta: string; mensaje: string }[] = [
   {
-    etiqueta: 'Dia 1, manana',
+    etiqueta: 'Dia 1, manana — mensaje completo con los 11 locales',
     mensaje: `RELEVAMIENTO cada LOCAL 20-08-2026
 Le Pain Quotidien: 10
 Deli House: 5
-Civediamo: 42`,
+Civediamo: 42
+Costal: 0
+Medialuna: 0
+Gonna: 49
+El Sultan: 121
+Boqueria: 52
+Don Ruiz: 60
+Sushi Fabric: 16
+Persicco: 6`,
   },
   {
     etiqueta: 'Dia 1, mediodia — segunda carga del mismo dia',
     mensaje: `RELEVAMIENTO cada LOCAL 20-08-2026
 Le Pain Quotidien: 8
 Deli House: 3
-Civediamo: 20`,
+Civediamo: 20
+Gonna: 30
+El Sultan: 80
+Boqueria: 25`,
   },
   {
     etiqueta: 'Dia 1, tarde — tercera carga',
     mensaje: `RELEVAMIENTO cada LOCAL 20-08-2026
 Le Pain Quotidien: 4
 Deli House: 2
-Civediamo: 15`,
+Civediamo: 15
+Persicco: 12`,
   },
   {
     etiqueta: 'Dia 2 — con typos (prueba el fuzzy matching)',
@@ -99,7 +111,7 @@ async function main() {
   }
 
   const dia1 = vista.dias.find(d => d.fecha === '20-08-2026');
-  const esperado = 22 + 10 + 77; // Le Pain 10+8+4, Deli 5+3+2, Civediamo 42+20+15
+  const esperado = 22 + 10 + 77 + 0 + 0 + 79 + 201 + 77 + 60 + 16 + 18;
   const ok = dia1?.totalGeneral === esperado;
 
   console.log('\n' + '='.repeat(70));
