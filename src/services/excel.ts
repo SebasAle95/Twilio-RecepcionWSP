@@ -4,7 +4,7 @@ import fs from 'fs';
 import { Relevamiento } from '../types/relevamiento';
 import {
   Registro, Vista, VistaDiaria,
-  aTexto, conHora, aClave, deTexto,
+  aTexto, ahoraConHora, aClave, deTexto,
   vistaDiaria, vistaSemanal, vistaMensual,
 } from './vistas';
 
@@ -179,7 +179,7 @@ async function procesar(relevamiento: Relevamiento): Promise<void> {
   const registros = leerDatos(wb);
 
   // Cada mensaje se agrega: nunca reemplaza lo anterior.
-  const recibido = conHora(new Date());
+  const recibido = ahoraConHora();
   for (const local of relevamiento.locales) {
     registros.push({
       fecha:     aTexto(relevamiento.fecha),

@@ -1,5 +1,6 @@
 import { LocalConcurrencia, Relevamiento } from '../types/relevamiento';
 import { matchearLocal } from './fuzzy';
+import { hoy } from './vistas';
 
 function esRelevamiento(texto: string): boolean {
   return texto.toUpperCase().includes('RELEVAMIENTO');
@@ -12,7 +13,8 @@ function extraerFecha(texto: string): Date {
     const anioCompleto = anio!.length === 2 ? `20${anio}` : anio!;
     return new Date(Number(anioCompleto), Number(mes) - 1, Number(dia));
   }
-  return new Date();
+  // Sin fecha en el mensaje, es el dia de hoy en la zona del relevamiento
+  return hoy();
 }
 
 export function parsearRelevamiento(texto: string, remitente: string): Relevamiento | null {

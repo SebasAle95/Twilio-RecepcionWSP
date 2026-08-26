@@ -68,17 +68,58 @@ export interface Vista {
 
 export const pad = (n: number) => n.toString().padStart(2, '0');
 
+/**
+ * Zona horaria del relevamiento.
+ *
+ * El servidor de Railway corre en UTC. Sin convertir, las horas se mostrarian
+ * 3 horas adelantadas y —peor— un mensaje enviado despues de las 21:00 se
+ * guardaria con la fecha del dia siguiente.
+ */
+export const ZONA = process.env.ZONA_HORARIA || 'America/Argentina/Buenos_Aires';
+
+/** Componentes de un instante, ya convertidos a ZONA. */
+function partesEnZona(f: Date) {
+  const partes = new Intl.DateTimeFormat('en-CA', {
+    timeZone: ZONA,
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit',
+    hour12: false,
+  }).formatToParts(f);
+
+  const valor = (tipo: string) => partes.find(p => p.type === tipo)!.value;
+
+  return {
+    anio: Number(valor('year')),
+    mes:  Number(valor('month')),
+    dia:  Number(valor('day')),
+    hora: valor('hour') === '24' ? '00' : valor('hour'), // en-CA usa 24 a medianoche
+    min:  valor('minute'),
+    seg:  valor('second'),
+  };
+}
+
+/**
+ * Formatea los componentes locales de un Date, sin convertir zonas.
+ * Es la inversa exacta de `deTexto`, asi que el ida y vuelta siempre cierra.
+ */
 export function aTexto(f: Date): string {
   return `${pad(f.getDate())}-${pad(f.getMonth() + 1)}-${f.getFullYear()}`;
 }
 
+/** El dia de hoy en ZONA, como Date a medianoche local (para round-trip). */
+export function hoy(): Date {
+  const p = partesEnZona(new Date());
+  return new Date(p.anio, p.mes - 1, p.dia);
+}
+
 /**
- * Marca de recepcion con segundos: es lo que separa una carga de otra.
+ * Marca de recepcion en ZONA, con segundos: es lo que separa una carga de otra.
  * Sin segundos, dos mensajes del mismo minuto se fusionarian en una sola
  * linea de la vista diaria.
  */
-export function conHora(f: Date): string {
-  return `${aTexto(f)} ${pad(f.getHours())}:${pad(f.getMinutes())}:${pad(f.getSeconds())}`;
+export function ahoraConHora(): string {
+  const p = partesEnZona(new Date());
+  return `${pad(p.dia)}-${pad(p.mes)}-${p.anio} ${p.hora}:${p.min}:${p.seg}`;
 }
 
 export function deTexto(s: string): Date {
