@@ -2,7 +2,7 @@
   "$schema": "https://railway.app/railway.schema.json",
   "build": {
     "builder": "NIXPACKS",
-    "buildCommand": "node -e \"const fs=require('fs');const keys=['GOOGLE_CLIENT_EMAIL','GOOGLE_PRIVATE_KEY_B64','TWILIO_ACCOUNT_SID','TWILIO_AUTH_TOKEN'];let content='';keys.forEach(k=>{if(process.env[k])content+=k+'='+JSON.stringify(process.env[k])+'\\n'});if(content){fs.writeFileSync('.env',content);console.log('Build: wrote',keys.filter(k=>process.env[k]).length,'vars to .env');}else{console.log('Build: no user vars found at build time');}\" && npm run build"
+    "buildCommand": "npm run build"
   },
   "deploy": {
     "startCommand": "npm start",
