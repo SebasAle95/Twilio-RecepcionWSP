@@ -5,25 +5,25 @@ import path from 'path';
 const FOLDER_ID = process.env.GDRIVE_FOLDER_ID || '18uruBWGJEx52A8wulNG8QgPVB6Ex8-VT';
 const FILE_NAME = 'relevamientos.xlsx';
 
+/**
+ * Autenticación vía OAuth con una cuenta de Google real.
+ *
+ * No usamos service account: no tienen cuota de almacenamiento propia y no
+ * pueden ser dueñas de archivos en un Drive personal (error 403
+ * "Service Accounts do not have storage quota").
+ */
 function getAuth() {
-  const clientEmail = process.env.GOOGLE_CLIENT_EMAIL;
-  const keyB64      = process.env.GOOGLE_PRIVATE_KEY_B64;
+  const clientId     = process.env.GOOGLE_OAUTH_CLIENT_ID;
+  const clientSecret = process.env.GOOGLE_OAUTH_CLIENT_SECRET;
+  const refreshToken = process.env.GOOGLE_OAUTH_REFRESH_TOKEN;
 
-  console.log(`[gdrive] CLIENT_EMAIL: ${clientEmail ? 'OK' : 'FALTA'}`);
-  console.log(`[gdrive] PRIVATE_KEY_B64: ${keyB64 ? 'OK (len=' + keyB64.length + ')' : 'FALTA'}`);
+  if (!clientId)     throw new Error('Falta variable GOOGLE_OAUTH_CLIENT_ID');
+  if (!clientSecret) throw new Error('Falta variable GOOGLE_OAUTH_CLIENT_SECRET');
+  if (!refreshToken) throw new Error('Falta variable GOOGLE_OAUTH_REFRESH_TOKEN');
 
-  if (!clientEmail) throw new Error('Falta variable GOOGLE_CLIENT_EMAIL');
-  if (!keyB64)      throw new Error('Falta variable GOOGLE_PRIVATE_KEY_B64');
-
-  const privateKey = Buffer.from(keyB64, 'base64').toString('utf8');
-
-  return new google.auth.GoogleAuth({
-    credentials: {
-      client_email: clientEmail,
-      private_key:  privateKey,
-    },
-    scopes: ['https://www.googleapis.com/auth/drive'],
-  });
+  const oauth2 = new google.auth.OAuth2(clientId, clientSecret);
+  oauth2.setCredentials({ refresh_token: refreshToken });
+  return oauth2;
 }
 
 /**
@@ -35,9 +35,17 @@ export async function diagnosticarAcceso() {
   const drive = google.drive({ version: 'v3', auth });
 
   const resultado: Record<string, unknown> = {
-    serviceAccount: process.env.GOOGLE_CLIENT_EMAIL,
+    modo: 'oauth',
     folderIdBuscado: FOLDER_ID,
   };
+
+  // ¿De quién es la cuenta autorizada?
+  try {
+    const about = await drive.about.get({ fields: 'user(emailAddress), storageQuota(limit, usage)' });
+    resultado.cuenta = about.data;
+  } catch (e: any) {
+    resultado.cuenta = { error: e?.message ?? String(e) };
+  }
 
   // ¿Puede acceder a la carpeta configurada?
   try {

@@ -7,7 +7,8 @@
     "dev": "nodemon --exec tsx src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
-    "simular": "tsx src/test/simular.ts"
+    "simular": "tsx src/test/simular.ts",
+    "token": "tsx src/test/obtener-token.ts"
   },
   "repository": {
     "type": "git",
