@@ -19,5 +19,5 @@ app.get('/health', (_req, res) => {
 app.listen(PORT, () => {
   console.log(`Servidor escuchando en puerto ${PORT}`);
   console.log(`[ENV] GOOGLE_CLIENT_EMAIL: ${process.env.GOOGLE_CLIENT_EMAIL ? 'SET' : 'NOT SET'}`);
-  console.log(`[ENV] GOOGLE_PRIVATE_KEY: ${process.env.GOOGLE_PRIVATE_KEY ? 'SET (len=' + process.env.GOOGLE_PRIVATE_KEY.length + ')' : 'NOT SET'}`);
+  console.log(`[ENV] GOOGLE_PRIVATE_KEY_B64: ${process.env.GOOGLE_PRIVATE_KEY_B64 ? 'SET (len=' + process.env.GOOGLE_PRIVATE_KEY_B64.length + ')' : 'NOT SET'}`);
 });

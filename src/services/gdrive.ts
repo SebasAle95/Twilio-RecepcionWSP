@@ -6,15 +6,16 @@ const FOLDER_ID = process.env.GDRIVE_FOLDER_ID || '18uruBWGJEx52A8wulNG8QgPVB6Ex
 const FILE_NAME = 'relevamientos.xlsx';
 
 function getAuth() {
-  const clientEmail  = process.env.GOOGLE_CLIENT_EMAIL;
-  const rawKey       = process.env.GOOGLE_PRIVATE_KEY;
-  const privateKey   = rawKey?.replace(/\\n/g, '\n');
+  const clientEmail = process.env.GOOGLE_CLIENT_EMAIL;
+  const keyB64      = process.env.GOOGLE_PRIVATE_KEY_B64;
 
-  console.log(`[gdrive] CLIENT_EMAIL: ${clientEmail ? 'OK (' + clientEmail.slice(0, 20) + '...)' : 'FALTA'}`);
-  console.log(`[gdrive] PRIVATE_KEY: ${rawKey ? 'OK (len=' + rawKey.length + ')' : 'FALTA'}`);
+  console.log(`[gdrive] CLIENT_EMAIL: ${clientEmail ? 'OK' : 'FALTA'}`);
+  console.log(`[gdrive] PRIVATE_KEY_B64: ${keyB64 ? 'OK (len=' + keyB64.length + ')' : 'FALTA'}`);
 
   if (!clientEmail) throw new Error('Falta variable GOOGLE_CLIENT_EMAIL');
-  if (!privateKey)  throw new Error('Falta variable GOOGLE_PRIVATE_KEY');
+  if (!keyB64)      throw new Error('Falta variable GOOGLE_PRIVATE_KEY_B64');
+
+  const privateKey = Buffer.from(keyB64, 'base64').toString('utf8');
 
   return new google.auth.GoogleAuth({
     credentials: {
