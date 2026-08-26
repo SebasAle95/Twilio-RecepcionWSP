@@ -1,12 +1,13 @@
-export interface LocalVenta {
+/** Cuanta gente concurrio a un local. */
+export interface LocalConcurrencia {
   nombre: string;         // nombre normalizado (del listado conocido)
   nombreOriginal: string; // como vino en el mensaje (puede tener typos)
-  cantidad: number;
+  cantidad: number;       // personas contadas
 }
 
 export interface Relevamiento {
   fecha: Date;
   remitente: string;
-  locales: LocalVenta[];
+  locales: LocalConcurrencia[];
   textoOriginal: string;
 }

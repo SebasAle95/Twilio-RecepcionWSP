@@ -1,4 +1,4 @@
-import { LocalVenta, Relevamiento } from '../types/relevamiento';
+import { LocalConcurrencia, Relevamiento } from '../types/relevamiento';
 import { matchearLocal } from './fuzzy';
 
 function esRelevamiento(texto: string): boolean {
@@ -19,7 +19,7 @@ export function parsearRelevamiento(texto: string, remitente: string): Relevamie
   if (!esRelevamiento(texto)) return null;
 
   const fecha = extraerFecha(texto);
-  const locales: LocalVenta[] = [];
+  const locales: LocalConcurrencia[] = [];
 
   const lineas = texto.split('\n').map(l => l.trim()).filter(Boolean);
 

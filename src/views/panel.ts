@@ -20,7 +20,7 @@ function esc(s: string): string {
 
 const nf = new Intl.NumberFormat('es-AR');
 
-/** Los ceros se atenuan para que la vista destaque donde si hubo ventas. */
+/** Los ceros se atenuan para que la vista destaque donde si hubo gente. */
 function celda(n: number): string {
   return `<td${n === 0 ? ' class="cero"' : ''}>${nf.format(n)}</td>`;
 }
@@ -601,7 +601,7 @@ export function renderPanel(d: Datos): string {
   <div class="contenedor">
     <header>
       <div>
-        <h1>Relevamiento de ventas</h1>
+        <h1>Relevamiento de concurrencia</h1>
         <p class="meta">${meta}</p>
       </div>
       ${hayDatos ? `<a class="descargar" href="/panel/descargar?clave=${q}">Descargar Excel</a>` : ''}
