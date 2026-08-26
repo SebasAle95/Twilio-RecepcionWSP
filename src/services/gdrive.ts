@@ -7,11 +7,14 @@ const FILE_NAME = 'relevamientos.xlsx';
 
 function getAuth() {
   const clientEmail  = process.env.GOOGLE_CLIENT_EMAIL;
-  const privateKey   = process.env.GOOGLE_PRIVATE_KEY?.replace(/\\n/g, '\n');
+  const rawKey       = process.env.GOOGLE_PRIVATE_KEY;
+  const privateKey   = rawKey?.replace(/\\n/g, '\n');
 
-  if (!clientEmail || !privateKey) {
-    throw new Error('Faltan variables GOOGLE_CLIENT_EMAIL o GOOGLE_PRIVATE_KEY');
-  }
+  console.log(`[gdrive] CLIENT_EMAIL: ${clientEmail ? 'OK (' + clientEmail.slice(0, 20) + '...)' : 'FALTA'}`);
+  console.log(`[gdrive] PRIVATE_KEY: ${rawKey ? 'OK (len=' + rawKey.length + ')' : 'FALTA'}`);
+
+  if (!clientEmail) throw new Error('Falta variable GOOGLE_CLIENT_EMAIL');
+  if (!privateKey)  throw new Error('Falta variable GOOGLE_PRIVATE_KEY');}
 
   return new google.auth.GoogleAuth({
     credentials: {
