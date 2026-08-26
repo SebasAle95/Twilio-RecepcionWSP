@@ -27,16 +27,16 @@ function getAuth() {
 }
 
 /**
- * Diagnóstico: qué ve realmente la service account.
- * Endpoint temporal — quitar una vez resuelto el acceso a Drive.
+ * Diagnóstico de la conexión con Drive.
+ * Endpoint temporal — quitar antes de entregar.
  */
 export async function diagnosticarAcceso() {
   const auth = getAuth();
   const drive = google.drive({ version: 'v3', auth });
 
   const resultado: Record<string, unknown> = {
-    modo: 'oauth',
-    folderIdBuscado: FOLDER_ID,
+    modo: 'oauth (scope drive.file)',
+    folderIdConfigurado: FOLDER_ID,
   };
 
   // ¿De quién es la cuenta autorizada?
@@ -47,30 +47,15 @@ export async function diagnosticarAcceso() {
     resultado.cuenta = { error: e?.message ?? String(e) };
   }
 
-  // ¿Puede acceder a la carpeta configurada?
+  // ¿Ya existe el Excel? Con drive.file solo vemos los archivos de esta app,
+  // así que la carpeta en sí no es inspeccionable — y no hace falta.
   try {
-    const f = await drive.files.get({
-      fileId: FOLDER_ID,
-      fields: 'id, name, mimeType',
-      supportsAllDrives: true,
-    });
-    resultado.carpetaConfigurada = { ok: true, ...f.data };
+    const id = await buscarArchivoExistente(drive, FILE_NAME);
+    resultado.excel = id
+      ? { existe: true, id, url: `https://drive.google.com/file/d/${id}/view` }
+      : { existe: false, nota: 'Todavía no se creó. Se crea con el primer mensaje.' };
   } catch (e: any) {
-    resultado.carpetaConfigurada = { ok: false, error: e?.message ?? String(e) };
-  }
-
-  // ¿Qué carpetas ve en total?
-  try {
-    const res = await drive.files.list({
-      q: "mimeType='application/vnd.google-apps.folder' and trashed=false",
-      fields: 'files(id, name)',
-      pageSize: 50,
-      supportsAllDrives: true,
-      includeItemsFromAllDrives: true,
-    });
-    resultado.carpetasVisibles = res.data.files ?? [];
-  } catch (e: any) {
-    resultado.carpetasVisibles = { error: e?.message ?? String(e) };
+    resultado.excel = { error: e?.message ?? String(e) };
   }
 
   return resultado;

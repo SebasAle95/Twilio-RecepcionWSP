@@ -16,7 +16,14 @@ dotenv.config();
 
 const PUERTO = 5555;
 const REDIRECT_URI = `http://localhost:${PUERTO}`;
-const SCOPES = ['https://www.googleapis.com/auth/drive'];
+// drive.file = solo los archivos que crea esta app.
+//
+// Es un scope "no sensible": permite publicar la app sin verificación de
+// Google (sin política de privacidad ni dominio verificado) y evita la
+// pantalla de "app no verificada". El scope amplio `drive` es restringido y
+// exigiría todo ese trámite. Acá alcanza: la app solo crea y actualiza
+// relevamientos.xlsx, no necesita ver el resto del Drive.
+const SCOPES = ['https://www.googleapis.com/auth/drive.file'];
 
 const clientId     = process.env.GOOGLE_OAUTH_CLIENT_ID;
 const clientSecret = process.env.GOOGLE_OAUTH_CLIENT_SECRET;
