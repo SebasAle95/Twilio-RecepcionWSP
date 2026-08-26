@@ -7,14 +7,10 @@
  * incluyendo correcciones, para verificar que no se duplican filas.
  */
 import fs from 'fs';
-import path from 'path';
 import { parsearRelevamiento } from '../services/parser';
-import { agregarAlExcel } from '../services/excel';
+import { agregarAlExcel, EXCEL_PATH } from '../services/excel';
 
-process.env.SKIP_DRIVE = '1';
-
-const EXCEL_PATH = path.join(process.cwd(), 'data', 'relevamientos.xlsx');
-const REMITENTE  = 'whatsapp:+5493812345678';
+const REMITENTE = 'whatsapp:+5493812345678';
 
 const CASOS: { etiqueta: string; mensaje: string }[] = [
   {

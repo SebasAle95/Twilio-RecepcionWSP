@@ -2,77 +2,27 @@ import ExcelJS from 'exceljs';
 import path from 'path';
 import fs from 'fs';
 import { Relevamiento } from '../types/relevamiento';
-import { subirAGoogleDrive, descargarDeGoogleDrive } from './gdrive';
-import { LOCALES_CONOCIDOS } from '../config/locales';
+import {
+  Registro, Vista, aTexto, aClave, deTexto, todasLasVistas,
+} from './vistas';
 
-const DATA_DIR   = path.join(process.cwd(), 'data');
-const EXCEL_PATH = path.join(DATA_DIR, 'relevamientos.xlsx');
+/**
+ * Railway define RAILWAY_VOLUME_MOUNT_PATH cuando hay un volumen montado.
+ * Ahí el archivo sobrevive a los reinicios; sin volumen cae en ./data, que es
+ * efímero y sirve solo para desarrollo local.
+ */
+const DATA_DIR = process.env.RAILWAY_VOLUME_MOUNT_PATH
+  || process.env.DATA_DIR
+  || path.join(process.cwd(), 'data');
 
-const HOJA_DATOS    = 'Datos';
-const HOJA_DIARIO   = 'Diario';
-const HOJA_SEMANAL  = 'Semanal';
-const HOJA_MENSUAL  = 'Mensual';
+export const EXCEL_PATH = path.join(DATA_DIR, 'relevamientos.xlsx');
 
-/** Una venta de un local en una fecha. Clave única: fecha + local. */
-interface Registro {
-  fecha:       string;  // DD-MM-YYYY
-  local:       string;
-  cantidad:    number;
-  remitente:   string;
-  actualizado: string;  // cuándo se cargó o corrigió
-}
-
-// ── Fechas ───────────────────────────────────────────────────────────────────
-
-const pad = (n: number) => n.toString().padStart(2, '0');
-
-function aTexto(f: Date): string {
-  return `${pad(f.getDate())}-${pad(f.getMonth() + 1)}-${f.getFullYear()}`;
-}
-
-function deTexto(s: string): Date {
-  const [d, m, a] = s.split('-').map(Number);
-  return new Date(a, m - 1, d);
-}
-
-/** Clave ordenable alfabéticamente (YYYY-MM-DD). */
-function aClave(f: Date): string {
-  return `${f.getFullYear()}-${pad(f.getMonth() + 1)}-${pad(f.getDate())}`;
-}
-
-/** Lunes de la semana a la que pertenece la fecha. */
-function inicioSemana(f: Date): Date {
-  const x = new Date(f.getFullYear(), f.getMonth(), f.getDate());
-  const dia = x.getDay();
-  x.setDate(x.getDate() - (dia === 0 ? 6 : dia - 1));
-  return x;
-}
-
-const MESES = [
-  'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
-  'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre',
-];
+const HOJA_DATOS = 'Datos';
 
 // ── Workbook ─────────────────────────────────────────────────────────────────
 
-/**
- * Trae el workbook, priorizando el historial de Drive.
- *
- * El disco de Railway es efímero: si el archivo local no está, hay que bajarlo
- * de Drive antes de agregar nada, o se pierde todo lo anterior.
- */
 async function obtenerWorkbook(): Promise<ExcelJS.Workbook> {
   if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
-
-  if (!fs.existsSync(EXCEL_PATH)) {
-    try {
-      await descargarDeGoogleDrive(EXCEL_PATH);
-    } catch (e) {
-      // Si Drive falla, seguimos en local para no perder el mensaje entrante.
-      // El upload posterior va a reintentar y ahí sí se reporta el error.
-      console.error('No se pudo recuperar el historial de Drive:', e);
-    }
-  }
 
   const wb = new ExcelJS.Workbook();
   if (fs.existsSync(EXCEL_PATH)) {
@@ -147,7 +97,7 @@ function upsert(registros: Registro[], rel: Relevamiento): { nuevos: number; cor
   return { nuevos, corregidos };
 }
 
-// ── Armado de hojas ──────────────────────────────────────────────────────────
+// ── Escritura de hojas ───────────────────────────────────────────────────────
 
 function recrearHoja(wb: ExcelJS.Workbook, nombre: string): ExcelJS.Worksheet {
   const previa = wb.getWorksheet(nombre);
@@ -158,7 +108,7 @@ function recrearHoja(wb: ExcelJS.Workbook, nombre: string): ExcelJS.Worksheet {
 function estilarEncabezado(ws: ExcelJS.Worksheet): void {
   const fila = ws.getRow(1);
   fila.font      = { bold: true, color: { argb: 'FFFFFFFF' } };
-  fila.fill      = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF2E75B6' } };
+  fila.fill      = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0F6E5C' } };
   fila.alignment = { horizontal: 'center', vertical: 'middle' };
   ws.views = [{ state: 'frozen', ySplit: 1 }];
 }
@@ -177,85 +127,42 @@ function escribirDatos(wb: ExcelJS.Workbook, registros: Registro[]): void {
   estilarEncabezado(ws);
 }
 
-/** Locales conocidos primero (en el orden configurado), después los que aparecieron sueltos. */
-function ordenarLocales(registros: Registro[]): string[] {
-  const presentes = new Set(registros.map(r => r.local));
-  const conocidos = LOCALES_CONOCIDOS.filter(l => presentes.has(l));
-  const extras    = [...presentes].filter(l => !LOCALES_CONOCIDOS.includes(l)).sort();
-  return [...conocidos, ...extras];
-}
-
-/**
- * Arma una hoja pivote: filas = periodo, columnas = locales, celdas = suma.
- *
- * @param agrupar  de un registro devuelve { clave, etiqueta } del periodo
- */
-function escribirPivote(
-  wb: ExcelJS.Workbook,
-  nombre: string,
-  etiquetaPeriodo: string,
-  registros: Registro[],
-  agrupar: (f: Date) => { clave: string; etiqueta: string },
-): void {
-  const ws = recrearHoja(wb, nombre);
-  const locales = ordenarLocales(registros);
+function escribirVista(wb: ExcelJS.Workbook, vista: Vista): void {
+  const ws = recrearHoja(wb, vista.titulo);
 
   ws.columns = [
-    { header: etiquetaPeriodo, key: 'periodo', width: 24 },
-    ...locales.map(l => ({ header: l, key: l, width: 16 })),
+    { header: vista.periodo, key: 'periodo', width: 24 },
+    ...vista.locales.map(l => ({ header: l, key: l, width: 16 })),
     { header: 'Total', key: '__total', width: 12 },
   ];
 
-  // clave de periodo -> { etiqueta, local -> suma }
-  const grupos = new Map<string, { etiqueta: string; valores: Map<string, number> }>();
-
-  for (const r of registros) {
-    const { clave, etiqueta } = agrupar(deTexto(r.fecha));
-    if (!grupos.has(clave)) grupos.set(clave, { etiqueta, valores: new Map() });
-    const valores = grupos.get(clave)!.valores;
-    valores.set(r.local, (valores.get(r.local) ?? 0) + r.cantidad);
+  for (const fila of vista.filas) {
+    const row: Record<string, string | number> = { periodo: fila.etiqueta };
+    vista.locales.forEach((l, i) => { row[l] = fila.valores[i]; });
+    row.__total = fila.total;
+    ws.addRow(row);
   }
 
-  for (const clave of [...grupos.keys()].sort()) {
-    const { etiqueta, valores } = grupos.get(clave)!;
-    const fila: Record<string, string | number> = { periodo: etiqueta };
-    let total = 0;
-    for (const l of locales) {
-      const v = valores.get(l) ?? 0;
-      fila[l] = v;
-      total += v;
-    }
-    fila.__total = total;
-    ws.addRow(fila);
-  }
+  // Fila de totales al pie
+  const pie: Record<string, string | number> = { periodo: 'TOTAL' };
+  vista.locales.forEach((l, i) => { pie[l] = vista.totales[i]; });
+  pie.__total = vista.totalGeneral;
+  const filaPie = ws.addRow(pie);
+  filaPie.font = { bold: true };
 
   ws.getColumn('__total').font = { bold: true };
   estilarEncabezado(ws);
 }
 
-function reconstruirVistas(wb: ExcelJS.Workbook, registros: Registro[]): void {
-  escribirPivote(wb, HOJA_DIARIO, 'Fecha', registros, f => ({
-    clave:    aClave(f),
-    etiqueta: aTexto(f),
-  }));
+// ── API pública ──────────────────────────────────────────────────────────────
 
-  escribirPivote(wb, HOJA_SEMANAL, 'Semana', registros, f => {
-    const ini = inicioSemana(f);
-    const fin = new Date(ini);
-    fin.setDate(fin.getDate() + 6);
-    return {
-      clave:    aClave(ini),
-      etiqueta: `${pad(ini.getDate())}-${pad(ini.getMonth() + 1)} al ${pad(fin.getDate())}-${pad(fin.getMonth() + 1)}-${fin.getFullYear()}`,
-    };
-  });
-
-  escribirPivote(wb, HOJA_MENSUAL, 'Mes', registros, f => ({
-    clave:    `${f.getFullYear()}-${pad(f.getMonth() + 1)}`,
-    etiqueta: `${MESES[f.getMonth()]} ${f.getFullYear()}`,
-  }));
+/** Los registros guardados, para el panel web. */
+export async function obtenerRegistros(): Promise<Registro[]> {
+  if (!fs.existsSync(EXCEL_PATH)) return [];
+  const wb = new ExcelJS.Workbook();
+  await wb.xlsx.readFile(EXCEL_PATH);
+  return leerDatos(wb);
 }
-
-// ── Export principal ─────────────────────────────────────────────────────────
 
 /**
  * Serializa los mensajes: dos relevamientos simultáneos leyendo el mismo
@@ -276,19 +183,10 @@ async function procesar(relevamiento: Relevamiento): Promise<void> {
   const { nuevos, corregidos } = upsert(registros, relevamiento);
 
   escribirDatos(wb, registros);
-  reconstruirVistas(wb, registros);
+  for (const vista of todasLasVistas(registros)) escribirVista(wb, vista);
 
   await wb.xlsx.writeFile(EXCEL_PATH);
   console.log(
     `Excel actualizado: ${nuevos} nuevos, ${corregidos} corregidos, ${registros.length} registros en total`,
   );
-
-  // SKIP_DRIVE=1 permite correr la simulación local sin credenciales.
-  if (process.env.SKIP_DRIVE === '1') {
-    console.log('SKIP_DRIVE=1 — no se sube a Drive');
-    return;
-  }
-
-  const url = await subirAGoogleDrive(EXCEL_PATH);
-  console.log(`Google Drive: ${url}`);
 }
