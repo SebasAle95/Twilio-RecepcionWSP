@@ -71,7 +71,9 @@ function escalaBonita(max: number): { tope: number; ticks: number[] } {
 
 function grafico(puntos: PuntoTendencia[]): string {
   const W = 760, H = 220;
-  const ML = 46, MR = 14, MT = 14, MB = 30;
+  // ML tiene que alcanzar para la etiqueta mas ancha con la fuente mas grande
+  // (en movil sube a 18px del viewBox), o se recorta contra el borde.
+  const ML = 72, MR = 14, MT = 14, MB = 30;
   const ancho = W - ML - MR;
   const alto  = H - MT - MB;
 
@@ -98,9 +100,13 @@ function grafico(puntos: PuntoTendencia[]): string {
   }
   marcados.add(final);
 
-  const ticksX = puntos.map((p, i) => marcados.has(i)
-    ? `<text class="tick-x" x="${x(i).toFixed(1)}" y="${H - 10}">${esc(p.etiqueta)}</text>`
-    : '').join('');
+  // Las de los extremos se anclan hacia adentro, o se cortan contra el borde.
+  // Va por clase: text-anchor puesto en CSS le gana al atributo del SVG.
+  const ticksX = puntos.map((p, i) => {
+    if (!marcados.has(i)) return '';
+    const extremo = i === 0 ? ' inicio' : i === final ? ' fin' : '';
+    return `<text class="tick-x${extremo}" x="${x(i).toFixed(1)}" y="${H - 10}">${esc(p.etiqueta)}</text>`;
+  }).join('');
 
   const ultimo = puntos.length - 1;
 
@@ -375,6 +381,18 @@ const CSS = `
     gap: 1.25rem;
   }
 
+  /*
+   * min-width:0 en todo hijo de flex/grid.
+   *
+   * Por defecto vale auto, que impide encogerse por debajo del ancho del
+   * contenido: las tablas anchas empujaban el layout entero y desbordaban la
+   * pantalla en movil, en vez de scrollear dentro de su propia tarjeta.
+   */
+  .contenedor > *,
+  .resumen > *,
+  .paneles > *,
+  .panel > * { min-width: 0; }
+
   /* ── Encabezado ── */
   header.principal {
     display: flex;
@@ -536,7 +554,7 @@ const CSS = `
 
   .gr-wrap { position: relative; padding: 1rem 1.15rem 1.15rem; }
   /* Alto automatico: estirar el viewBox deformaria el texto y los trazos */
-  .gr-wrap svg { width: 100%; height: auto; display: block; overflow: visible; }
+  .gr-wrap svg { width: 100%; height: auto; display: block; }
 
   .grid   { stroke: var(--grid); stroke-width: 1; }
   .area   { fill: var(--accent-10); stroke: none; }
@@ -551,7 +569,17 @@ const CSS = `
   }
   .tick-y { text-anchor: end; }
   .tick-x { text-anchor: middle; }
+  .tick-x.inicio { text-anchor: start; }
+  .tick-x.fin    { text-anchor: end; }
   .zona   { fill: transparent; cursor: crosshair; }
+
+  /*
+   * El texto del SVG escala con el viewBox: en una pantalla angosta el grafico
+   * se dibuja a menos de la mitad y 11px se renderizan como 5px. Se compensa
+   * agrandando la fuente en unidades del viewBox.
+   */
+  @media (max-width: 900px) { .tick-y, .tick-x { font-size: 14px; } }
+  @media (max-width: 600px) { .tick-y, .tick-x { font-size: 18px; } }
 
   .tooltip {
     position: absolute;
