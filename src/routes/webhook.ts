@@ -4,32 +4,26 @@ import { agregarAlExcel } from '../services/excel';
 
 export const webhookRouter = Router();
 
-/** Un mensaje entrante, ya normalizado sin importar de donde vino. */
+/** Un mensaje de texto entrante, ya normalizado. */
 interface MensajeEntrante {
   texto:     string;
   remitente: string;
 }
 
 /**
- * Twilio manda form-urlencoded con Body y From.
- * Meta Cloud API manda JSON anidado.
+ * Extrae los mensajes de texto del payload de Meta Cloud API.
  *
- * Aceptamos los dos para poder migrar de proveedor sin cortar el servicio.
+ * El payload viene anidado y puede traer varios mensajes de una sola vez.
+ * Tambien llegan avisos de estado (entregado, leido) que no tienen `messages`
+ * y se descartan solos.
  */
 function extraerMensajes(body: any): MensajeEntrante[] {
-  // ── Twilio ──
-  if (typeof body?.Body === 'string') {
-    return [{ texto: body.Body, remitente: body.From ?? '' }];
-  }
-
-  // ── Meta Cloud API ──
-  // entry[].changes[].value.messages[] — puede traer varios de una
   const mensajes: MensajeEntrante[] = [];
 
   for (const entry of body?.entry ?? []) {
     for (const cambio of entry?.changes ?? []) {
       for (const m of cambio?.value?.messages ?? []) {
-        // Solo mensajes de texto; ignoramos audios, imagenes, etc.
+        // Solo texto: ignoramos audios, imagenes, ubicaciones, etc.
         if (m?.type !== 'text' || !m?.text?.body) continue;
         mensajes.push({
           texto:     m.text.body,
@@ -43,10 +37,10 @@ function extraerMensajes(body: any): MensajeEntrante[] {
 }
 
 /**
- * Verificacion del webhook de Meta.
+ * Verificacion del webhook.
  *
  * Al configurarlo, Meta hace un GET con un token y espera que le devolvamos
- * el challenge. Twilio no usa esto.
+ * el challenge tal cual.
  */
 webhookRouter.get('/whatsapp', (req: Request, res: Response) => {
   const token     = process.env.META_VERIFY_TOKEN;
@@ -55,7 +49,7 @@ webhookRouter.get('/whatsapp', (req: Request, res: Response) => {
   const challenge = req.query['hub.challenge'];
 
   if (!token) {
-    console.warn('Verificacion de Meta rechazada: falta META_VERIFY_TOKEN');
+    console.warn('Verificacion rechazada: falta META_VERIFY_TOKEN');
     res.sendStatus(403);
     return;
   }
@@ -66,18 +60,17 @@ webhookRouter.get('/whatsapp', (req: Request, res: Response) => {
     return;
   }
 
-  console.warn('Verificacion de Meta rechazada: token incorrecto');
+  console.warn('Verificacion rechazada: token incorrecto');
   res.sendStatus(403);
 });
 
 webhookRouter.post('/whatsapp', async (req: Request, res: Response) => {
-  // Se responde 200 siempre: si devolvemos error, el proveedor reintenta el
-  // mismo mensaje y terminaria cargandose dos veces.
+  // Se responde 200 siempre: si devolvemos error, Meta reintenta el mismo
+  // mensaje y el relevamiento se cargaria dos veces.
   try {
     const mensajes = extraerMensajes(req.body);
 
     if (!mensajes.length) {
-      // Meta manda tambien avisos de estado (entregado, leido); son ruido.
       res.sendStatus(200);
       return;
     }
