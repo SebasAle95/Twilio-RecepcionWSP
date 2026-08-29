@@ -315,3 +315,130 @@ export function vistaCalendario(registros: Registro[]): MesCalendario[] {
     };
   });
 }
+
+// ── Resumen para el dashboard ────────────────────────────────────────────────
+
+/** Un total con su comparacion contra el periodo anterior. */
+export interface Comparado {
+  etiqueta: string;
+  total:    number;
+  anterior: number;
+  /** Variacion porcentual. null cuando el periodo anterior fue cero. */
+  variacion: number | null;
+}
+
+export interface PuntoTendencia {
+  clave:    string;  // YYYY-MM-DD
+  etiqueta: string;  // DD/MM
+  total:    number;
+}
+
+export interface Resumen {
+  hoy:       Comparado & { cargas: number };
+  semana:    Comparado;
+  mes:       Comparado;
+  /** Ultimos 14 dias, incluidos los que no tuvieron carga. */
+  tendencia: PuntoTendencia[];
+  /** Locales del mes en curso, de mayor a menor. */
+  ranking:   { local: string; total: number }[];
+}
+
+/** Suma los registros cuya fecha cae en [desde, hasta], ambos inclusive. */
+function totalEntre(registros: Registro[], desde: string, hasta: string): number {
+  return registros.reduce((acc, r) => {
+    const c = aClave(deTexto(r.fecha));
+    return c >= desde && c <= hasta ? acc + r.cantidad : acc;
+  }, 0);
+}
+
+function sumarDias(f: Date, dias: number): Date {
+  const x = new Date(f.getFullYear(), f.getMonth(), f.getDate());
+  x.setDate(x.getDate() + dias);
+  return x;
+}
+
+function variacionEntre(total: number, anterior: number): number | null {
+  if (anterior === 0) return null;
+  return ((total - anterior) / anterior) * 100;
+}
+
+export function resumen(registros: Registro[]): Resumen {
+  const ahora = hoy();
+
+  // ── Hoy vs ayer ──
+  const claveHoy  = aClave(ahora);
+  const claveAyer = aClave(sumarDias(ahora, -1));
+  const totalHoy  = totalEntre(registros, claveHoy, claveHoy);
+
+  const cargasHoy = new Set(
+    registros.filter(r => aClave(deTexto(r.fecha)) === claveHoy).map(r => r.recibido),
+  ).size;
+
+  // ── Semana en curso vs anterior ──
+  const iniSemana = inicioSemana(ahora);
+  const finSemana = sumarDias(iniSemana, 6);
+  const iniPrevia = sumarDias(iniSemana, -7);
+  const finPrevia = sumarDias(iniSemana, -1);
+
+  // ── Mes en curso vs anterior ──
+  const iniMes = new Date(ahora.getFullYear(), ahora.getMonth(), 1);
+  const finMes = new Date(ahora.getFullYear(), ahora.getMonth() + 1, 0);
+  const iniMesPrevio = new Date(ahora.getFullYear(), ahora.getMonth() - 1, 1);
+  const finMesPrevio = new Date(ahora.getFullYear(), ahora.getMonth(), 0);
+
+  const totalSemana = totalEntre(registros, aClave(iniSemana), aClave(finSemana));
+  const totalMes    = totalEntre(registros, aClave(iniMes), aClave(finMes));
+
+  // ── Tendencia de los ultimos 14 dias ──
+  const tendencia: PuntoTendencia[] = [];
+  for (let i = 13; i >= 0; i--) {
+    const d = sumarDias(ahora, -i);
+    const c = aClave(d);
+    tendencia.push({
+      clave:    c,
+      etiqueta: `${pad(d.getDate())}/${pad(d.getMonth() + 1)}`,
+      total:    totalEntre(registros, c, c),
+    });
+  }
+
+  // ── Ranking de locales del mes en curso ──
+  const delMes = registros.filter(r => {
+    const c = aClave(deTexto(r.fecha));
+    return c >= aClave(iniMes) && c <= aClave(finMes);
+  });
+
+  const porLocal = new Map<string, number>();
+  for (const r of delMes) porLocal.set(r.local, (porLocal.get(r.local) ?? 0) + r.cantidad);
+
+  const ranking = [...porLocal.entries()]
+    .map(([local, total]) => ({ local, total }))
+    .sort((a, b) => b.total - a.total);
+
+  const totalAyer        = totalEntre(registros, claveAyer, claveAyer);
+  const totalSemanaPrev  = totalEntre(registros, aClave(iniPrevia), aClave(finPrevia));
+  const totalMesPrev     = totalEntre(registros, aClave(iniMesPrevio), aClave(finMesPrevio));
+
+  return {
+    hoy: {
+      etiqueta:  aTexto(ahora),
+      total:     totalHoy,
+      anterior:  totalAyer,
+      variacion: variacionEntre(totalHoy, totalAyer),
+      cargas:    cargasHoy,
+    },
+    semana: {
+      etiqueta:  `${pad(iniSemana.getDate())}/${pad(iniSemana.getMonth() + 1)} al ${pad(finSemana.getDate())}/${pad(finSemana.getMonth() + 1)}`,
+      total:     totalSemana,
+      anterior:  totalSemanaPrev,
+      variacion: variacionEntre(totalSemana, totalSemanaPrev),
+    },
+    mes: {
+      etiqueta:  `${MESES[ahora.getMonth()]} ${ahora.getFullYear()}`,
+      total:     totalMes,
+      anterior:  totalMesPrev,
+      variacion: variacionEntre(totalMes, totalMesPrev),
+    },
+    tendencia,
+    ranking,
+  };
+}

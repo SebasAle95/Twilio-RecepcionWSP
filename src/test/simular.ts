@@ -3,65 +3,106 @@
  *
  *   npm run simular
  *
- * Borra el Excel y lo reconstruye mandando varios mensajes, incluyendo
- * varias cargas en el mismo dia, para verificar que se acumulan.
+ * Borra el Excel y lo reconstruye con historial de las ultimas semanas, para
+ * poder ver el dashboard con datos. Al final verifica que las cargas del mismo
+ * dia se acumulen en vez de pisarse.
  */
 import fs from 'fs';
 import { parsearRelevamiento } from '../services/parser';
 import { agregarAlExcel, EXCEL_PATH, obtenerRegistros } from '../services/excel';
-import { vistaDiaria } from '../services/vistas';
+import { vistaDiaria, resumen, hoy, aTexto } from '../services/vistas';
+import { LOCALES_CONOCIDOS } from '../config/locales';
 
-const REMITENTE = 'whatsapp:+5493812345678';
+const REMITENTE = 'whatsapp:+5493816343407';
+const DIAS_HISTORIAL = 20;
 
-const CASOS: { etiqueta: string; mensaje: string }[] = [
-  {
-    etiqueta: 'Dia 1, manana — mensaje completo con los 11 locales',
-    mensaje: `RELEVAMIENTO cada LOCAL 20-08-2026
-Le Pain Quotidien: 10
-Deli House: 5
-Civediamo: 42
-Costal: 0
-Medialuna: 0
-Gonna: 49
-El Sultan: 121
-Boqueria: 52
-Don Ruiz: 60
-Sushi Fabric: 16
-Persicco: 6`,
-  },
-  {
-    etiqueta: 'Dia 1, mediodia — segunda carga del mismo dia',
-    mensaje: `RELEVAMIENTO cada LOCAL 20-08-2026
-Le Pain Quotidien: 8
-Deli House: 3
-Civediamo: 20
-Gonna: 30
-El Sultan: 80
-Boqueria: 25`,
-  },
-  {
-    etiqueta: 'Dia 1, tarde — tercera carga',
-    mensaje: `RELEVAMIENTO cada LOCAL 20-08-2026
-Le Pain Quotidien: 4
-Deli House: 2
-Civediamo: 15
-Persicco: 12`,
-  },
-  {
-    etiqueta: 'Dia 2 — con typos (prueba el fuzzy matching)',
-    mensaje: `RELEVAMIENTO cada LOCAL 21-08-2026
-Le Pain Quotidian: 12
-Deli Hause: 7
-Civediamo: 30`,
-  },
-  {
-    etiqueta: 'Mes anterior — para probar la navegacion del calendario',
-    mensaje: `RELEVAMIENTO cada LOCAL 15-07-2026
-Le Pain Quotidien: 30
-Deli House: 12
-Civediamo: 60`,
-  },
-];
+/** Pseudo-aleatorio determinista, para que la simulacion sea reproducible. */
+function aleatorio(semilla: number): () => number {
+  let s = semilla;
+  return () => {
+    s = (s * 1664525 + 1013904223) % 4294967296;
+    return s / 4294967296;
+  };
+}
+
+function fechaHace(dias: number): Date {
+  const f = hoy();
+  f.setDate(f.getDate() - dias);
+  return f;
+}
+
+/** Un mensaje como el que manda la persona que releva. */
+function armarMensaje(fecha: Date, rnd: () => number, factor: number): string {
+  const lineas = LOCALES_CONOCIDOS
+    // No todos los locales aparecen en cada carga
+    .filter(() => rnd() > 0.15)
+    .map(local => {
+      const base = 10 + Math.floor(rnd() * 90);
+      return `${local}: ${Math.round(base * factor)}`;
+    });
+
+  return `RELEVAMIENTO cada LOCAL ${aTexto(fecha)}\n${lineas.join('\n')}`;
+}
+
+async function sembrarHistorial() {
+  const rnd = aleatorio(42);
+
+  for (let d = DIAS_HISTORIAL; d >= 0; d--) {
+    const fecha = fechaHace(d);
+
+    // Los domingos no se releva, para que el calendario muestre huecos
+    if (fecha.getDay() === 0) continue;
+
+    // Entre una y tres cargas por dia
+    const cargas = 1 + Math.floor(rnd() * 3);
+
+    for (let c = 0; c < cargas; c++) {
+      const rel = parsearRelevamiento(armarMensaje(fecha, rnd, 0.6 + rnd() * 0.8), REMITENTE);
+      if (rel) await agregarAlExcel(rel);
+      await new Promise(r => setTimeout(r, 1010)); // separa las cargas en la linea de tiempo
+    }
+  }
+}
+
+/** Manda dos cargas iguales hoy y verifica que se sumen en vez de pisarse. */
+async function verificarAcumulacion(): Promise<boolean> {
+  const fecha = aTexto(hoy());
+  const mensaje = `RELEVAMIENTO cada LOCAL ${fecha}\nCivediamo: 100`;
+
+  const antes = (await obtenerRegistros())
+    .filter(r => r.fecha === fecha && r.local === 'Civediamo')
+    .reduce((a, r) => a + r.cantidad, 0);
+
+  for (let i = 0; i < 2; i++) {
+    const rel = parsearRelevamiento(mensaje, REMITENTE);
+    if (rel) await agregarAlExcel(rel);
+    await new Promise(r => setTimeout(r, 1010));
+  }
+
+  const despues = (await obtenerRegistros())
+    .filter(r => r.fecha === fecha && r.local === 'Civediamo')
+    .reduce((a, r) => a + r.cantidad, 0);
+
+  const esperado = antes + 200;
+  const ok = despues === esperado;
+
+  console.log(`\nAcumulacion: Civediamo paso de ${antes} a ${despues} (esperado ${esperado}) ${ok ? 'OK' : 'FALLA'}`);
+  return ok;
+}
+
+/** El fuzzy matching tiene que reconocer los nombres mal escritos. */
+async function verificarFuzzy(): Promise<boolean> {
+  const rel = parsearRelevamiento(
+    `RELEVAMIENTO cada LOCAL\nLe Pain Quotidian: 5\nDeli Hause: 3\nEl Sultn: 8`,
+    REMITENTE,
+  );
+
+  const nombres = rel?.locales.map(l => l.nombre) ?? [];
+  const ok = nombres.join('|') === 'Le Pain Quotidien|Deli House|El Sultan';
+
+  console.log(`Fuzzy matching: ${nombres.join(', ')} ${ok ? 'OK' : 'FALLA'}`);
+  return ok;
+}
 
 async function main() {
   if (fs.existsSync(EXCEL_PATH)) {
@@ -69,56 +110,30 @@ async function main() {
     console.log('Excel anterior borrado — empezamos limpio\n');
   }
 
-  for (const caso of CASOS) {
-    console.log('='.repeat(70));
-    console.log(caso.etiqueta);
-    console.log('='.repeat(70));
+  console.log(`Sembrando ${DIAS_HISTORIAL} dias de historial...`);
+  await sembrarHistorial();
 
-    const rel = parsearRelevamiento(caso.mensaje, REMITENTE);
-    if (!rel) {
-      console.log('No se detecto como relevamiento\n');
-      continue;
-    }
+  const okAcum  = await verificarAcumulacion();
+  const okFuzzy = await verificarFuzzy();
 
-    for (const l of rel.locales) {
-      const typo = l.nombre !== l.nombreOriginal ? `  (corregido de "${l.nombreOriginal}")` : '';
-      console.log(`  ${l.nombre.padEnd(22)} ${String(l.cantidad).padStart(4)}${typo}`);
-    }
-
-    await agregarAlExcel(rel);
-    console.log('');
-
-    // Las cargas del mismo minuto quedarian agrupadas; separamos para ver la
-    // linea de tiempo como pasaria en la realidad.
-    await new Promise(r => setTimeout(r, 1100));
-  }
-
-  // ── Verificacion ───────────────────────────────────────────────────────────
   const registros = await obtenerRegistros();
-  const vista = vistaDiaria(registros);
+  const r = resumen(registros);
+  const v = vistaDiaria(registros);
 
-  console.log('='.repeat(70));
-  console.log('RESULTADO');
-  console.log('='.repeat(70));
+  console.log('\n' + '='.repeat(64));
+  console.log('RESUMEN');
+  console.log('='.repeat(64));
+  console.log(`Registros totales : ${registros.length}`);
+  console.log(`Dias con carga    : ${v.dias.length}`);
+  console.log(`Hoy               : ${r.hoy.total} personas (${r.hoy.cargas} cargas)` +
+              (r.hoy.variacion !== null ? `  ${r.hoy.variacion > 0 ? '+' : ''}${r.hoy.variacion.toFixed(0)}% vs ayer` : ''));
+  console.log(`Semana            : ${r.semana.total}` +
+              (r.semana.variacion !== null ? `  ${r.semana.variacion > 0 ? '+' : ''}${r.semana.variacion.toFixed(0)}% vs anterior` : ''));
+  console.log(`Mes               : ${r.mes.total}`);
+  console.log(`Top del mes       : ${r.ranking[0]?.local} (${r.ranking[0]?.total})`);
+  console.log('='.repeat(64));
 
-  for (const dia of vista.dias) {
-    console.log(`\n${dia.fecha}  (${dia.cargas.length} cargas)`);
-    console.log('  ' + 'Hora'.padEnd(8) + vista.locales.map(l => l.slice(0, 12).padStart(14)).join('') + 'Total'.padStart(8));
-    for (const c of dia.cargas) {
-      console.log('  ' + c.hora.padEnd(8) + c.valores.map(v => String(v).padStart(14)).join('') + String(c.total).padStart(8));
-    }
-    console.log('  ' + 'TOTAL'.padEnd(8) + dia.totales.map(v => String(v).padStart(14)).join('') + String(dia.totalGeneral).padStart(8));
-  }
-
-  const dia1 = vista.dias.find(d => d.fecha === '20-08-2026');
-  const esperado = 22 + 10 + 77 + 0 + 0 + 79 + 201 + 77 + 60 + 16 + 18;
-  const ok = dia1?.totalGeneral === esperado;
-
-  console.log('\n' + '='.repeat(70));
-  console.log(`Esperado para el 20-08: ${esperado}  |  Obtenido: ${dia1?.totalGeneral}  ${ok ? 'OK' : 'FALLA'}`);
-  console.log('='.repeat(70));
-
-  if (!ok) process.exit(1);
+  if (!okAcum || !okFuzzy) process.exit(1);
 }
 
 main().catch(e => {
