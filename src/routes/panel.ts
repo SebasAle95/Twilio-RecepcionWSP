@@ -3,6 +3,7 @@ import fs from 'fs';
 import { obtenerRegistros, EXCEL_PATH } from '../services/excel';
 import {
   vistaDiaria, vistaSemanal, vistaMensual, vistaCalendario, resumen,
+  claveCronologica,
 } from '../services/vistas';
 import { renderPanel } from '../views/panel';
 
@@ -35,8 +36,12 @@ panelRouter.get('/', exigirClave, async (req, res) => {
   try {
     const registros = await obtenerRegistros();
 
+    // Comparar las marcas como texto no sirve: "31-08" resulta mayor que
+    // "12-09" alfabeticamente, aunque sea anterior en el tiempo.
     const ultimaCarga = registros.length
-      ? registros.reduce((max, r) => (r.recibido > max ? r.recibido : max), '')
+      ? registros.reduce((max, r) =>
+          claveCronologica(r.recibido) > claveCronologica(max) ? r.recibido : max,
+        registros[0].recibido)
       : null;
 
     const diaria = vistaDiaria(registros);

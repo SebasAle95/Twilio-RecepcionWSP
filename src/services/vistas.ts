@@ -247,15 +247,21 @@ export function vistaDiaria(registros: Registro[]): VistaDiaria {
           const v = cargasMap.get(recibido)!;
           const valores = locales.map(l => v.get(l) ?? 0);
 
-          // Si el mensaje llego en otra jornada, es una carga retroactiva.
-          // Si llego en la misma pero ya cambiado el dia del calendario, es
-          // de madrugada: el turno seguia abierto.
+          // Retroactiva es solo la que se cargo DESPUES de la jornada. La
+          // comparacion va por clave ordenable: como texto, "31-08" resulta
+          // mayor que "12-09" aunque sea anterior.
+          //
+          // Los registros anteriores al cambio de jornada quedaron con la
+          // fecha del calendario, asi que su recepcion figura antes que su
+          // jornada. Eso no es retroactivo y no se rotula.
           const jornadaRecepcion = jornadaDeMarca(recibido);
+          const claveRecepcion   = aClave(deTexto(jornadaRecepcion));
+          const claveJornada     = aClave(deTexto(fecha));
 
           return {
             hora:        recibido.slice(11, 16), // HH:MM para mostrar
             recibido,
-            retroactiva: jornadaRecepcion !== fecha,
+            retroactiva: claveRecepcion > claveJornada,
             madrugada:   jornadaRecepcion === fecha && recibido.slice(0, 10) !== fecha,
             valores,
             total:       suma(valores),
