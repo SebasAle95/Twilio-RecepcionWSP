@@ -5,6 +5,8 @@ import {
 interface Datos {
   resumen:        Resumen;
   diaria:         VistaDiaria;
+  /** Que jornada mostrar en la pestaña Diario (indice dentro de `diaria.dias`). */
+  indiceDia:      number;
   semanal:        Vista;
   mensual:        Vista;
   calendario:     MesCalendario[];
@@ -23,9 +25,13 @@ function esc(s: string): string {
 
 const nf = new Intl.NumberFormat('es-AR');
 
-/** Los ceros se atenuan para que la vista destaque donde si hubo gente. */
+/**
+ * Los ceros se atenuan para que la vista destaque donde si hubo gente.
+ * `data-v` lleva el valor crudo: al ordenar se lee de ahi y no del texto
+ * formateado, que trae puntos de miles y habria que volver a parsear.
+ */
 function celda(n: number): string {
-  return `<td${n === 0 ? ' class="cero"' : ''}>${nf.format(n)}</td>`;
+  return `<td data-v="${n}"${n === 0 ? ' class="cero"' : ''}>${nf.format(n)}</td>`;
 }
 
 // ── Indicador de variacion ───────────────────────────────────────────────────
@@ -170,16 +176,17 @@ function tabla(
   totalGeneral: number,
 ): string {
   const cabecera = columnas.map(c => `
-            <th scope="col">
+            <th scope="col" aria-sort="none">
               <span class="col-titulo">${esc(c.etiqueta)}</span>
               ${c.sub ? `<span class="col-sub">${esc(c.sub)}</span>` : ''}
+              <span class="orden"></span>
             </th>`).join('');
 
   const filas = locales.map((local, l) => `
           <tr>
-            <th scope="row">${esc(local)}</th>
+            <th scope="row" data-v="${esc(local)}">${esc(local)}</th>
             ${columnas.map((_, c) => celda(valorDe(l, c))).join('')}
-            <td class="total">${nf.format(totalesPorLocal[l])}</td>
+            <td class="total" data-v="${totalesPorLocal[l]}">${nf.format(totalesPorLocal[l])}</td>
           </tr>`).join('');
 
   const totalesColumna = columnas.map((_, c) =>
@@ -194,12 +201,12 @@ function tabla(
 
   return `
       <div class="scroll">
-        <table>
+        <table data-ordenable>
           <thead>
             <tr>
-              <th scope="col">${esc(encabezadoFila)}</th>
+              <th scope="col" aria-sort="none">${esc(encabezadoFila)}<span class="orden"></span></th>
               ${cabecera}
-              <th scope="col" class="total">Total</th>
+              <th scope="col" class="total" aria-sort="none">Total<span class="orden"></span></th>
             </tr>
           </thead>
           <tbody>${filas}</tbody>
@@ -208,25 +215,48 @@ function tabla(
       </div>`;
 }
 
-function tablaDiaria(v: VistaDiaria): string {
+/**
+ * Una sola jornada, con flechas para moverse entre las que tienen datos.
+ *
+ * `v.dias` viene de la mas reciente a la mas vieja, asi que "anterior" avanza
+ * en el indice y "siguiente" retrocede.
+ */
+function tablaDiaria(v: VistaDiaria, indice: number, clave: string): string {
   if (!v.dias.length) return '';
 
-  return v.dias.map(dia => {
-    const n = dia.cargas.length;
+  const dia = v.dias[indice] ?? v.dias[0];
+  const i   = v.dias.indexOf(dia);
+  const n   = dia.cargas.length;
 
-    return `
-    <section class="tarjeta" id="dia-${esc(dia.fecha)}">
+  const enlace = (destino: number, simbolo: string, rotulo: string) => {
+    const d = v.dias[destino];
+    return d
+      ? `<a class="nav-btn" href="?clave=${encodeURIComponent(clave)}&dia=${encodeURIComponent(d.fecha)}"
+           aria-label="${rotulo} (${esc(d.fecha)})" title="${esc(d.fecha)}">${simbolo}</a>`
+      : `<span class="nav-btn" aria-disabled="true">${simbolo}</span>`;
+  };
+
+  return `
+    <section class="tarjeta">
       <header class="tarjeta-cab">
-        <h3>${esc(dia.fecha)}</h3>
-        <p><strong>${nf.format(dia.totalGeneral)}</strong> personas · ${n} ${n === 1 ? 'carga' : 'cargas'}</p>
+        <div class="nav-dia">
+          ${enlace(i + 1, '&#8249;', 'Día anterior')}
+          <h3>${esc(dia.fecha)}</h3>
+          ${enlace(i - 1, '&#8250;', 'Día siguiente')}
+        </div>
+        <p>
+          <strong>${nf.format(dia.totalGeneral)}</strong> personas ·
+          ${n} ${n === 1 ? 'carga' : 'cargas'} ·
+          <span class="posicion">${i + 1} de ${v.dias.length} días</span>
+        </p>
       </header>
       ${tabla(
         'Local',
         // "madrugada" avisa que esa carga llego pasada la medianoche: si no,
         // ver 02:00 despues de 22:00 parece un error de orden
-        dia.cargas.map((c, i) => ({
+        dia.cargas.map((c, k) => ({
           etiqueta: c.hora,
-          sub: c.madrugada ? `carga ${i + 1} · madrugada` : `carga ${i + 1}`,
+          sub: c.madrugada ? `carga ${k + 1} · madrugada` : `carga ${k + 1}`,
         })),
         v.locales,
         (l, c) => dia.cargas[c].valores[l],
@@ -234,7 +264,6 @@ function tablaDiaria(v: VistaDiaria): string {
         dia.totalGeneral,
       )}
     </section>`;
-  }).join('');
 }
 
 function tablaPivote(v: Vista): string {
@@ -256,17 +285,19 @@ function tablaPivote(v: Vista): string {
 
 const DIAS_SEMANA = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
 
-function mesCalendario(m: MesCalendario, visible: boolean): string {
+function mesCalendario(m: MesCalendario, visible: boolean, clave: string): string {
   const celdas = m.celdas.map(c => {
     if (!c) return '<div class="dia fuera"></div>';
     if (c.cargas === 0) return `<div class="dia sin-carga"><span class="num">${c.dia}</span></div>`;
 
     const cargas = `${c.cargas} ${c.cargas === 1 ? 'carga' : 'cargas'}`;
-    return `<button class="dia con-carga n${c.nivel}" data-fecha="${esc(c.fecha)}"
+    // Enlace real: abre esa jornada en la pestaña Diario
+    return `<a class="dia con-carga n${c.nivel}" data-fecha="${esc(c.fecha)}"
+              href="?clave=${encodeURIComponent(clave)}&dia=${encodeURIComponent(c.fecha)}"
               title="${esc(c.fecha)} · ${cargas} · ${nf.format(c.total)} personas">
               <span class="num">${c.dia}</span>
               <span class="valor">${nf.format(c.total)}</span>
-            </button>`;
+            </a>`;
   }).join('');
 
   return `
@@ -280,7 +311,7 @@ function mesCalendario(m: MesCalendario, visible: boolean): string {
       </div>`;
 }
 
-function calendario(meses: MesCalendario[]): string {
+function calendario(meses: MesCalendario[], clave: string): string {
   if (!meses.length) return '';
 
   return `
@@ -291,8 +322,8 @@ function calendario(meses: MesCalendario[]): string {
           <span id="mes-actual">${esc(meses[0].etiqueta)}</span>
           <button id="mes-siguiente" aria-label="Mes siguiente" disabled>&#8250;</button>
         </div>
-        ${meses.map((m, i) => mesCalendario(m, i === 0)).join('')}
-        <p class="leyenda">Tocá un día con carga para ver el detalle.</p>
+        ${meses.map((m, i) => mesCalendario(m, i === 0, clave)).join('')}
+        <p class="leyenda">Tocá un día con carga para abrirlo en la pestaña Diario.</p>
       </div>
     </section>`;
 }
@@ -483,6 +514,27 @@ const CSS = `
     font-variant-numeric: tabular-nums;
   }
   .tarjeta-cab p { margin: 0; font-size: .8rem; color: var(--ink-2); }
+  .posicion { color: var(--muted); }
+
+  /* Navegacion entre jornadas */
+  .nav-dia { display: flex; align-items: center; gap: .5rem; }
+  .nav-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.75rem;
+    height: 1.75rem;
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    background: var(--surface);
+    color: var(--ink);
+    font-size: 1rem;
+    line-height: 1;
+    text-decoration: none;
+  }
+  a.nav-btn:hover { background: var(--accent-10); }
+  a.nav-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .nav-btn[aria-disabled="true"] { opacity: .3; }
 
   h2.seccion {
     margin: 0;
@@ -684,6 +736,13 @@ const CSS = `
     white-space: nowrap;
     vertical-align: bottom;
   }
+  /* Encabezados clicables para ordenar */
+  thead th { cursor: pointer; user-select: none; }
+  thead th:hover { color: var(--ink); }
+  thead th:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+  thead th[aria-sort="ascending"], thead th[aria-sort="descending"] { color: var(--accent); }
+  .orden { font-size: .7em; }
+
   .col-titulo { display: block; font-variant-numeric: tabular-nums; }
   .col-sub {
     display: block;
@@ -785,6 +844,7 @@ const CSS = `
     cursor: pointer;
     border-color: transparent;
     color: var(--ink);
+    text-decoration: none;
     transition: transform .12s ease;
   }
   .dia.con-carga:hover { transform: translateY(-1px); }
@@ -931,21 +991,64 @@ const JS = (etiquetasMeses: string[]) => `
     anterior.addEventListener('click',  function () { if (i < meses.length - 1) mostrarMes(i + 1); });
     siguiente.addEventListener('click', function () { if (i > 0) mostrarMes(i - 1); });
 
-    document.querySelectorAll('.dia.con-carga').forEach(function (btn) {
-      btn.addEventListener('click', function () {
-        abrirTab('diario');
+    // Los dias son enlaces reales; solo dejamos marcada la pestaña destino
+    // para que al recargar caiga en Diario y no en Calendario.
+    document.querySelectorAll('.dia.con-carga').forEach(function (a) {
+      a.addEventListener('click', function () {
         try { localStorage.setItem('tab', 'diario'); } catch (e) {}
-        var t = document.getElementById('dia-' + btn.dataset.fecha);
-        if (t) {
-          t.scrollIntoView({ behavior: 'smooth', block: 'center' });
-          t.animate(
-            [{ boxShadow: '0 0 0 3px var(--accent)' }, { boxShadow: '0 0 0 0 transparent' }],
-            { duration: 1600, easing: 'ease-out' },
-          );
-        }
       });
     });
   }
+
+  // ── Ordenar tablas ──
+  function textoOrden(fila, col) {
+    var celda = fila.cells[col];
+    return celda ? (celda.dataset.v !== undefined ? celda.dataset.v : celda.textContent.trim()) : '';
+  }
+
+  document.querySelectorAll('table[data-ordenable]').forEach(function (tabla) {
+    var encabezados = [].slice.call(tabla.tHead.rows[0].cells);
+
+    encabezados.forEach(function (th, col) {
+      th.tabIndex = 0;
+
+      function ordenar() {
+        // Las columnas de numeros arrancan de mayor a menor, que es lo que se
+        // quiere ver; la de nombres arranca alfabetica.
+        var numerica = col > 0;
+        var previo   = th.getAttribute('aria-sort');
+        var desc     = previo === 'none' ? numerica : previo === 'ascending';
+
+        encabezados.forEach(function (otro) {
+          otro.setAttribute('aria-sort', 'none');
+          var marca = otro.querySelector('.orden');
+          if (marca) marca.textContent = '';
+        });
+
+        th.setAttribute('aria-sort', desc ? 'descending' : 'ascending');
+        var marca = th.querySelector('.orden');
+        if (marca) marca.textContent = desc ? ' \\u25BC' : ' \\u25B2';
+
+        var cuerpo = tabla.tBodies[0];
+        var filas  = [].slice.call(cuerpo.rows);
+
+        filas.sort(function (a, b) {
+          var va = textoOrden(a, col), vb = textoOrden(b, col);
+          var cmp = numerica
+            ? Number(va) - Number(vb)
+            : String(va).localeCompare(String(vb), 'es');
+          return desc ? -cmp : cmp;
+        });
+
+        filas.forEach(function (f) { cuerpo.appendChild(f); });
+      }
+
+      th.addEventListener('click', ordenar);
+      th.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); ordenar(); }
+      });
+    });
+  });
 `;
 
 // ── Render ───────────────────────────────────────────────────────────────────
@@ -1010,10 +1113,10 @@ export function renderPanel(d: Datos): string {
       <button role="tab" aria-selected="false" data-panel="calendario">Calendario</button>
     </div>
 
-    <div class="panel" id="diario"     role="tabpanel">${tablaDiaria(d.diaria)}</div>
+    <div class="panel" id="diario"     role="tabpanel">${tablaDiaria(d.diaria, d.indiceDia, d.clave)}</div>
     <div class="panel" id="semanal"    role="tabpanel" hidden>${tablaPivote(d.semanal)}</div>
     <div class="panel" id="mensual"    role="tabpanel" hidden>${tablaPivote(d.mensual)}</div>
-    <div class="panel" id="calendario" role="tabpanel" hidden>${calendario(d.calendario)}</div>
+    <div class="panel" id="calendario" role="tabpanel" hidden>${calendario(d.calendario, d.clave)}</div>
   ` : vacio;
 
   return `<!doctype html>

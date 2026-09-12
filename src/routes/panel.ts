@@ -39,9 +39,18 @@ panelRouter.get('/', exigirClave, async (req, res) => {
       ? registros.reduce((max, r) => (r.recibido > max ? r.recibido : max), '')
       : null;
 
+    const diaria = vistaDiaria(registros);
+
+    // Solo se muestra una jornada por vez: si se renderizaran todas, la
+    // pagina crece sin techo con el historial. El dia pedido llega por query;
+    // si no existe o no viene, se usa el mas reciente.
+    const pedido = String(req.query.dia ?? '');
+    const indiceDia = Math.max(0, diaria.dias.findIndex(d => d.fecha === pedido));
+
     res.type('text/html; charset=utf-8').send(renderPanel({
       resumen:        resumen(registros),
-      diaria:         vistaDiaria(registros),
+      diaria,
+      indiceDia,
       semanal:        vistaSemanal(registros),
       mensual:        vistaMensual(registros),
       calendario:     vistaCalendario(registros),
