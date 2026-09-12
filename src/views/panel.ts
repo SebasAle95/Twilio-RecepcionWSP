@@ -177,9 +177,13 @@ function tabla(
 ): string {
   const cabecera = columnas.map(c => `
             <th scope="col" aria-sort="none">
-              <span class="col-titulo">${esc(c.etiqueta)}</span>
-              ${c.sub ? `<span class="col-sub">${esc(c.sub)}</span>` : ''}
-              <span class="orden"></span>
+              <span class="th-wrap">
+                <span class="col-texto">
+                  <span class="col-titulo">${esc(c.etiqueta)}</span>
+                  ${c.sub ? `<span class="col-sub">${esc(c.sub)}</span>` : ''}
+                </span>
+                <span class="orden"></span>
+              </span>
             </th>`).join('');
 
   const filas = locales.map((local, l) => `
@@ -204,9 +208,13 @@ function tabla(
         <table data-ordenable>
           <thead>
             <tr>
-              <th scope="col" aria-sort="none">${esc(encabezadoFila)}<span class="orden"></span></th>
+              <th scope="col" aria-sort="none">
+                <span class="th-wrap">${esc(encabezadoFila)}<span class="orden"></span></span>
+              </th>
               ${cabecera}
-              <th scope="col" class="total" aria-sort="none">Total<span class="orden"></span></th>
+              <th scope="col" class="total" aria-sort="none">
+                <span class="th-wrap">Total<span class="orden"></span></span>
+              </th>
             </tr>
           </thead>
           <tbody>${filas}</tbody>
@@ -741,7 +749,21 @@ const CSS = `
   thead th:hover { color: var(--ink); }
   thead th:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
   thead th[aria-sort="ascending"], thead th[aria-sort="descending"] { color: var(--accent); }
-  .orden { font-size: .7em; }
+
+  /*
+   * La flecha va al lado del texto, no debajo: col-titulo y col-sub son
+   * bloques, asi que sin este contenedor flex la flecha caia a un renglon
+   * nuevo y descolocaba el encabezado.
+   */
+  .th-wrap {
+    display: inline-flex;
+    align-items: center;
+    gap: .3rem;
+    vertical-align: middle;
+  }
+  .col-texto { display: block; }
+  /* Ancho reservado: evita que la columna salte al aparecer la flecha */
+  .orden { font-size: .7em; min-width: .7em; text-align: left; }
 
   .col-titulo { display: block; font-variant-numeric: tabular-nums; }
   .col-sub {
