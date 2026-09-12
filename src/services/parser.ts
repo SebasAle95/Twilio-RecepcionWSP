@@ -17,10 +17,17 @@ function esRelevamiento(texto: string): boolean {
  * no responde mensajes— asi que ante la duda se prefiere la jornada en curso,
  * que es visible en el panel, antes que un dia lejano donde el dato se pierde.
  */
+/** Fecha precedida por la palabra "fecha": la forma recomendada de pedirla. */
+const FECHA_CON_PALABRA = /fecha\s*:?\s*(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})/i;
+
+/** Fecha suelta en cualquier parte del texto, por si se olvidan la palabra. */
+const FECHA_SUELTA = /(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})/;
+
 function extraerFecha(texto: string): Date {
   const jornada = hoy();
 
-  const m = texto.match(/(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})/);
+  // La que lleva la palabra manda: es la que la persona escribio a proposito
+  const m = texto.match(FECHA_CON_PALABRA) ?? texto.match(FECHA_SUELTA);
   if (!m) return jornada;
 
   const dia  = Number(m[1]);
