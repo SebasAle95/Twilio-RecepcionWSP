@@ -169,14 +169,14 @@ function ranking(items: { local: string; total: number }[]): string {
  */
 function tabla(
   encabezadoFila: string,
-  columnas: { etiqueta: string; sub?: string }[],
+  columnas: { etiqueta: string; sub?: string; titulo?: string }[],
   locales: string[],
   valorDe: (l: number, c: number) => number,
   totalesPorLocal: number[],
   totalGeneral: number,
 ): string {
   const cabecera = columnas.map(c => `
-            <th scope="col" aria-sort="none">
+            <th scope="col" aria-sort="none"${c.titulo ? ` title="${esc(c.titulo)}"` : ''}>
               <span class="th-wrap">
                 <span class="col-texto">
                   <span class="col-titulo">${esc(c.etiqueta)}</span>
@@ -260,11 +260,18 @@ function tablaDiaria(v: VistaDiaria, indice: number, clave: string): string {
       </header>
       ${tabla(
         'Local',
-        // "madrugada" avisa que esa carga llego pasada la medianoche: si no,
-        // ver 02:00 despues de 22:00 parece un error de orden
+        // Los rotulos hacen visible cuando una carga no siguio el curso
+        // normal: "madrugada" explica por que 02:00 va despues de 22:00, y
+        // "retroactiva" deja a la vista una carga hecha dias despues — que
+        // es donde se esconderia una fecha mal escrita.
         dia.cargas.map((c, k) => ({
           etiqueta: c.hora,
-          sub: c.madrugada ? `carga ${k + 1} · madrugada` : `carga ${k + 1}`,
+          sub: c.retroactiva ? `carga ${k + 1} · retroactiva`
+             : c.madrugada   ? `carga ${k + 1} · madrugada`
+             : `carga ${k + 1}`,
+          titulo: c.retroactiva
+            ? `Carga retroactiva, hecha el ${c.recibido}`
+            : `Carga recibida el ${c.recibido}`,
         })),
         v.locales,
         (l, c) => dia.cargas[c].valores[l],

@@ -1,22 +1,54 @@
 import { LocalConcurrencia, Relevamiento } from '../types/relevamiento';
 import { matchearLocal } from './fuzzy';
-import { hoy } from './vistas';
+import { hoy, fechaCalendario, aTexto } from './vistas';
 
 function esRelevamiento(texto: string): boolean {
   return texto.toUpperCase().includes('RELEVAMIENTO');
 }
 
+/**
+ * A que jornada corresponde el mensaje.
+ *
+ * Con una fecha escrita en el texto la carga es retroactiva: va a ese dia.
+ * Sin fecha va a la jornada en curso, que pasada la medianoche sigue siendo
+ * la que arranco la manana anterior.
+ *
+ * Una fecha mal escrita no se puede consultar con quien la mando —el sistema
+ * no responde mensajes— asi que ante la duda se prefiere la jornada en curso,
+ * que es visible en el panel, antes que un dia lejano donde el dato se pierde.
+ */
 function extraerFecha(texto: string): Date {
-  const match = texto.match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/);
-  if (match) {
-    const [, dia, mes, anio] = match;
-    const anioCompleto = anio!.length === 2 ? `20${anio}` : anio!;
-    return new Date(Number(anioCompleto), Number(mes) - 1, Number(dia));
+  const jornada = hoy();
+
+  const m = texto.match(/(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})/);
+  if (!m) return jornada;
+
+  const dia  = Number(m[1]);
+  const mes  = Number(m[2]);
+  const anio = m[3]!.length === 2 ? 2000 + Number(m[3]) : Number(m[3]);
+
+  const fecha = new Date(anio, mes - 1, dia);
+
+  // Una fecha imposible (32/13) no falla: Date la "rueda" a otra. Se detecta
+  // comparando contra lo que se pidio.
+  if (fecha.getDate() !== dia || fecha.getMonth() !== mes - 1 || fecha.getFullYear() !== anio) {
+    console.warn(`Fecha inexistente en el mensaje: "${m[0]}". Se usa la jornada en curso.`);
+    return jornada;
   }
-  // Sin fecha en el mensaje, es la jornada en curso: pasada la medianoche
-  // todavia corre la que arranco la manana anterior, porque los locales
-  // siguen abiertos hasta las 3 o 4 AM.
-  return hoy();
+
+  // Error humano tipico: a las 2 AM la jornada en curso es la del dia
+  // anterior, pero la persona escribe la fecha de "hoy" del calendario.
+  // Quiso decir "ahora", asi que va a la jornada en curso y no parte la noche.
+  // Va antes que el chequeo de fecha futura, que si no se lleva este caso.
+  if (aTexto(fecha) === aTexto(fechaCalendario())) return jornada;
+
+  // Un relevamiento no puede ser de un dia que todavia no paso
+  if (fecha.getTime() > jornada.getTime()) {
+    console.warn(`Fecha futura en el mensaje: "${m[0]}". Se usa la jornada en curso.`);
+    return jornada;
+  }
+
+  return fecha;
 }
 
 export function parsearRelevamiento(texto: string, remitente: string): Relevamiento | null {

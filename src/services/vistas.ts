@@ -19,8 +19,10 @@ export interface Registro {
 export interface Carga {
   hora:      string;    // HH:MM
   recibido:  string;
-  /** Llego pasada la medianoche, ya en el dia calendario siguiente. */
+  /** Llego pasada la medianoche, dentro de la misma jornada. */
   madrugada: boolean;
+  /** Se cargo despues, para una jornada ya cerrada. */
+  retroactiva: boolean;
   valores:   number[];  // alineado con `locales`
   total:     number;
 }
@@ -140,6 +142,25 @@ export function hoy(): Date {
 }
 
 /**
+ * El dia del calendario en ZONA, sin aplicar el corte de jornada.
+ * Durante la madrugada no coincide con la jornada en curso, y esa diferencia
+ * es justo la que hay que contemplar cuando alguien escribe la fecha a mano.
+ */
+export function fechaCalendario(): Date {
+  const p = partesEnZona(new Date());
+  return new Date(p.anio, p.mes - 1, p.dia);
+}
+
+/** A que jornada pertenece una marca "DD-MM-YYYY HH:MM:SS". */
+export function jornadaDeMarca(recibido: string): string {
+  const [fecha, hora = '00'] = recibido.split(' ');
+  if (Number(hora.slice(0, 2)) >= HORA_CORTE) return fecha;
+  const f = deTexto(fecha);
+  f.setDate(f.getDate() - 1);
+  return aTexto(f);
+}
+
+/**
  * Clave cronologica de una marca "DD-MM-YYYY HH:MM:SS".
  *
  * Ordenar por la hora suelta pondria una carga de las 02:00 antes que una de
@@ -225,13 +246,19 @@ export function vistaDiaria(registros: Registro[]): VistaDiaria {
         .map(recibido => {
           const v = cargasMap.get(recibido)!;
           const valores = locales.map(l => v.get(l) ?? 0);
+
+          // Si el mensaje llego en otra jornada, es una carga retroactiva.
+          // Si llego en la misma pero ya cambiado el dia del calendario, es
+          // de madrugada: el turno seguia abierto.
+          const jornadaRecepcion = jornadaDeMarca(recibido);
+
           return {
-            hora:      recibido.slice(11, 16), // HH:MM para mostrar
+            hora:        recibido.slice(11, 16), // HH:MM para mostrar
             recibido,
-            // El mensaje llego pasada la medianoche, ya en el dia siguiente
-            madrugada: recibido.slice(0, 10) !== fecha,
+            retroactiva: jornadaRecepcion !== fecha,
+            madrugada:   jornadaRecepcion === fecha && recibido.slice(0, 10) !== fecha,
             valores,
-            total:     suma(valores),
+            total:       suma(valores),
           };
         });
 
