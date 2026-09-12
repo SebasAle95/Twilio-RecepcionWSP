@@ -260,18 +260,12 @@ function tablaDiaria(v: VistaDiaria, indice: number, clave: string): string {
       </header>
       ${tabla(
         'Local',
-        // Los rotulos hacen visible cuando una carga no siguio el curso
-        // normal: "madrugada" explica por que 02:00 va despues de 22:00, y
-        // "retroactiva" deja a la vista una carga hecha dias despues — que
-        // es donde se esconderia una fecha mal escrita.
+        // "madrugada" explica por que una carga de las 02:00 va despues de
+        // una de las 22:00: el turno seguia abierto, no es un error de orden.
         dia.cargas.map((c, k) => ({
           etiqueta: c.hora,
-          sub: c.retroactiva ? `carga ${k + 1} · retroactiva`
-             : c.madrugada   ? `carga ${k + 1} · madrugada`
-             : `carga ${k + 1}`,
-          titulo: c.retroactiva
-            ? `Carga retroactiva, hecha el ${c.recibido}`
-            : `Carga recibida el ${c.recibido}`,
+          sub: c.madrugada ? `carga ${k + 1} · madrugada` : `carga ${k + 1}`,
+          titulo: `Recibida el ${c.recibido}`,
         })),
         v.locales,
         (l, c) => dia.cargas[c].valores[l],

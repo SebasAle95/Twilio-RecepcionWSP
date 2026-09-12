@@ -17,10 +17,20 @@ function esRelevamiento(texto: string): boolean {
  * no responde mensajes— asi que ante la duda se prefiere la jornada en curso,
  * que es visible en el panel, antes que un dia lejano donde el dato se pierde.
  */
-/** Fecha precedida por la palabra "fecha": la forma recomendada de pedirla. */
-const FECHA_CON_PALABRA = /fecha\s*:?\s*(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})/i;
+/**
+ * Fecha precedida por la palabra "fecha": la forma recomendada de pedirla.
+ *
+ * Acepta cualquier separador (\D) y no solo la barra: la palabra ya deja
+ * clara la intencion, y un resbalon de tecla —"07(08/2026", con el parentesis
+ * pegado a la barra— mandaria la carga al dia de hoy sin que nadie se entere.
+ */
+const FECHA_CON_PALABRA = /fecha\s*:?\s*(\d{1,2})\D(\d{1,2})\D(\d{2,4})/i;
 
-/** Fecha suelta en cualquier parte del texto, por si se olvidan la palabra. */
+/**
+ * Fecha suelta en cualquier parte del texto, por si se olvidan la palabra.
+ * Acá los separadores van acotados: sin la palabra que confirme la intencion,
+ * ser permisivo convertiria cualquier par de numeros en una fecha.
+ */
 const FECHA_SUELTA = /(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})/;
 
 function extraerFecha(texto: string): Date {
