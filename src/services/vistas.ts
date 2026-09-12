@@ -19,6 +19,8 @@ export interface Registro {
 export interface Carga {
   hora:      string;    // HH:MM
   recibido:  string;
+  /** Llego pasada la medianoche, ya en el dia calendario siguiente. */
+  madrugada: boolean;
   valores:   number[];  // alineado con `locales`
   total:     number;
 }
@@ -106,10 +108,48 @@ export function aTexto(f: Date): string {
   return `${pad(f.getDate())}-${pad(f.getMonth() + 1)}-${f.getFullYear()}`;
 }
 
-/** El dia de hoy en ZONA, como Date a medianoche local (para round-trip). */
+/**
+ * Hora en que arranca la jornada comercial.
+ *
+ * Los locales cierran entre las 3 y las 4 de la manana, asi que la jornada no
+ * coincide con el dia del calendario: una carga a las 02:00 pertenece al dia
+ * que empezo la manana anterior, no al que acaba de empezar a medianoche.
+ *
+ * Con el corte en 6 la jornada va de las 06:00 de un dia a las 05:59 del
+ * siguiente. Entre las 3 y las 6 no hay actividad, asi que esa banda funciona
+ * como margen para el local que cierra mas tarde.
+ */
+export const HORA_CORTE = Number(process.env.HORA_CORTE_JORNADA ?? 6);
+
+/**
+ * A que jornada pertenece un instante.
+ * Devuelve la fecha a medianoche local, para que cierre el ida y vuelta con
+ * `aTexto` / `deTexto`.
+ */
+export function jornadaDe(instante: Date): Date {
+  const p = partesEnZona(instante);
+  const f = new Date(p.anio, p.mes - 1, p.dia);
+  // Antes del corte todavia corre la jornada que arranco el dia anterior
+  if (Number(p.hora) < HORA_CORTE) f.setDate(f.getDate() - 1);
+  return f;
+}
+
+/** La jornada en curso. */
 export function hoy(): Date {
-  const p = partesEnZona(new Date());
-  return new Date(p.anio, p.mes - 1, p.dia);
+  return jornadaDe(new Date());
+}
+
+/**
+ * Clave cronologica de una marca "DD-MM-YYYY HH:MM:SS".
+ *
+ * Ordenar por la hora suelta pondria una carga de las 02:00 antes que una de
+ * las 22:00 de la misma jornada, al reves de como ocurrieron. Con la fecha
+ * real por delante, en formato ordenable, quedan en orden.
+ */
+export function claveCronologica(recibido: string): string {
+  const [fecha, hora = ''] = recibido.split(' ');
+  const [d, m, a] = fecha.split('-');
+  return `${a}-${m}-${d} ${hora}`;
 }
 
 /**
@@ -181,15 +221,17 @@ export function vistaDiaria(registros: Registro[]): VistaDiaria {
       const cargasMap = porDia.get(fecha)!;
 
       const cargas: Carga[] = [...cargasMap.keys()]
-        .sort((a, b) => a.slice(11).localeCompare(b.slice(11))) // cronologico
+        .sort((a, b) => claveCronologica(a).localeCompare(claveCronologica(b)))
         .map(recibido => {
           const v = cargasMap.get(recibido)!;
           const valores = locales.map(l => v.get(l) ?? 0);
           return {
-            hora:     recibido.slice(11, 16), // HH:MM para mostrar
+            hora:      recibido.slice(11, 16), // HH:MM para mostrar
             recibido,
+            // El mensaje llego pasada la medianoche, ya en el dia siguiente
+            madrugada: recibido.slice(0, 10) !== fecha,
             valores,
-            total:    suma(valores),
+            total:     suma(valores),
           };
         });
 

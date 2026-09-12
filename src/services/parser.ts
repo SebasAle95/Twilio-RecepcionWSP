@@ -13,7 +13,9 @@ function extraerFecha(texto: string): Date {
     const anioCompleto = anio!.length === 2 ? `20${anio}` : anio!;
     return new Date(Number(anioCompleto), Number(mes) - 1, Number(dia));
   }
-  // Sin fecha en el mensaje, es el dia de hoy en la zona del relevamiento
+  // Sin fecha en el mensaje, es la jornada en curso: pasada la medianoche
+  // todavia corre la que arranco la manana anterior, porque los locales
+  // siguen abiertos hasta las 3 o 4 AM.
   return hoy();
 }
 

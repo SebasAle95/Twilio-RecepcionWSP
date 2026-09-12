@@ -222,7 +222,12 @@ function tablaDiaria(v: VistaDiaria): string {
       </header>
       ${tabla(
         'Local',
-        dia.cargas.map((c, i) => ({ etiqueta: c.hora, sub: `carga ${i + 1}` })),
+        // "madrugada" avisa que esa carga llego pasada la medianoche: si no,
+        // ver 02:00 despues de 22:00 parece un error de orden
+        dia.cargas.map((c, i) => ({
+          etiqueta: c.hora,
+          sub: c.madrugada ? `carga ${i + 1} · madrugada` : `carga ${i + 1}`,
+        })),
         v.locales,
         (l, c) => dia.cargas[c].valores[l],
         dia.totales,

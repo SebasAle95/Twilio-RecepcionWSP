@@ -4,7 +4,7 @@ import fs from 'fs';
 import { Relevamiento } from '../types/relevamiento';
 import {
   Registro, Vista, VistaDiaria,
-  aTexto, ahoraConHora, aClave, deTexto,
+  aTexto, ahoraConHora, aClave, deTexto, claveCronologica,
   vistaDiaria, vistaSemanal, vistaMensual,
 } from './vistas';
 
@@ -87,8 +87,10 @@ function escribirDatos(wb: ExcelJS.Workbook, registros: Registro[]): void {
   ws.columns = COLUMNAS_DATOS;
 
   const ordenados = [...registros].sort((a, b) => {
-    const fa = aClave(deTexto(a.fecha)) + a.recibido.slice(11);
-    const fb = aClave(deTexto(b.fecha)) + b.recibido.slice(11);
+    // Jornada primero, y dentro de ella el momento real: una carga de las
+    // 02:00 va despues de una de las 22:00 de la misma jornada.
+    const fa = aClave(deTexto(a.fecha)) + ' ' + claveCronologica(a.recibido);
+    const fb = aClave(deTexto(b.fecha)) + ' ' + claveCronologica(b.recibido);
     return fa === fb ? a.local.localeCompare(b.local) : fa.localeCompare(fb);
   });
 
