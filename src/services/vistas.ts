@@ -9,10 +9,23 @@ import { LOCALES_CONOCIDOS } from '../config/locales';
  */
 export interface Registro {
   fecha:     string;  // DD-MM-YYYY — a que dia corresponde el relevamiento
-  recibido:  string;  // DD-MM-YYYY HH:MM — cuando llego el mensaje
+  recibido:  string;  // DD-MM-YYYY HH:MM:SS — cuando llego el mensaje
   local:     string;
   cantidad:  number;
   remitente: string;
+  /**
+   * Cuando se hizo el conteo, si el mensaje lo declaro con "hora HH:MM".
+   *
+   * Se guarda aparte de `recibido` para no perder cuando llego el mensaje.
+   * En una carga retroactiva los dos valores son muy distintos: el conteo
+   * pudo ser el 8 de agosto y el mensaje llegar un mes despues.
+   */
+  momento?:  string;
+}
+
+/** El instante que representa la carga: el declarado, o el de recepcion. */
+export function momentoDe(r: Registro): string {
+  return r.momento || r.recibido;
 }
 
 /** Un mensaje: los valores que trajo, con su hora. */
@@ -223,14 +236,18 @@ const suma = (ns: number[]) => ns.reduce((a, b) => a + b, 0);
 export function vistaDiaria(registros: Registro[]): VistaDiaria {
   const locales = ordenarLocales(registros);
 
-  // fecha -> recibido -> local -> cantidad
+  // Se agrupa por el momento que representa la carga, no por cuando llego el
+  // mensaje: si no, tres turnos cargados retroactivamente uno atras del otro
+  // quedarian los tres en la misma franja horaria.
+  // fecha -> momento -> local -> cantidad
   const porDia = new Map<string, Map<string, Map<string, number>>>();
 
   for (const r of registros) {
+    const momento = momentoDe(r);
     if (!porDia.has(r.fecha)) porDia.set(r.fecha, new Map());
     const cargas = porDia.get(r.fecha)!;
-    if (!cargas.has(r.recibido)) cargas.set(r.recibido, new Map());
-    const valores = cargas.get(r.recibido)!;
+    if (!cargas.has(momento)) cargas.set(momento, new Map());
+    const valores = cargas.get(momento)!;
     valores.set(r.local, (valores.get(r.local) ?? 0) + r.cantidad);
   }
 
@@ -241,18 +258,16 @@ export function vistaDiaria(registros: Registro[]): VistaDiaria {
 
       const cargas: Carga[] = [...cargasMap.keys()]
         .sort((a, b) => claveCronologica(a).localeCompare(claveCronologica(b)))
-        .map(recibido => {
-          const v = cargasMap.get(recibido)!;
+        .map(momento => {
+          const v = cargasMap.get(momento)!;
           const valores = locales.map(l => v.get(l) ?? 0);
 
-          // De madrugada: llego pasada la medianoche pero dentro de la misma
-          // jornada, con el turno todavia abierto.
-          const jornadaRecepcion = jornadaDeMarca(recibido);
-
+          // De madrugada: el conteo fue pasada la medianoche pero dentro de
+          // la misma jornada, con el turno todavia abierto.
           return {
-            hora:      recibido.slice(11, 16), // HH:MM para mostrar
-            recibido,
-            madrugada: jornadaRecepcion === fecha && recibido.slice(0, 10) !== fecha,
+            hora:      momento.slice(11, 16), // HH:MM para mostrar
+            recibido:  momento,
+            madrugada: jornadaDeMarca(momento) === fecha && momento.slice(0, 10) !== fecha,
             valores,
             total:     suma(valores),
           };

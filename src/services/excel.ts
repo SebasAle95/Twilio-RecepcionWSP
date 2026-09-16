@@ -4,7 +4,7 @@ import fs from 'fs';
 import { Relevamiento } from '../types/relevamiento';
 import {
   Registro, Vista, VistaDiaria,
-  aTexto, ahoraConHora, aClave, deTexto, claveCronologica,
+  aTexto, ahoraConHora, aClave, deTexto, claveCronologica, momentoDe,
   vistaDiaria, vistaSemanal, vistaMensual,
 } from './vistas';
 
@@ -35,12 +35,17 @@ async function obtenerWorkbook(): Promise<ExcelJS.Workbook> {
 
 // ── Hoja Datos (fuente de verdad) ────────────────────────────────────────────
 
+/**
+ * "Momento" va al final a proposito: agregarla en el medio correria las
+ * demas y los registros ya guardados se leerian mal.
+ */
 const COLUMNAS_DATOS: Partial<ExcelJS.Column>[] = [
   { header: 'Fecha',     key: 'fecha',     width: 14 },
   { header: 'Recibido',  key: 'recibido',  width: 20 },
   { header: 'Local',     key: 'local',     width: 26 },
   { header: 'Cantidad',  key: 'cantidad',  width: 12 },
   { header: 'Remitente', key: 'remitente', width: 22 },
+  { header: 'Momento',   key: 'momento',   width: 20 },
 ];
 
 function leerDatos(wb: ExcelJS.Workbook): Registro[] {
@@ -55,12 +60,17 @@ function leerDatos(wb: ExcelJS.Workbook): Registro[] {
     const local = String(row.getCell(3).value ?? '').trim();
     if (!fecha || !local) return;
 
+    // Los registros anteriores a esta columna la traen vacia; ahi el momento
+    // de la carga es la hora en que llego el mensaje.
+    const momento = String(row.getCell(6).value ?? '').trim();
+
     registros.push({
       fecha,
       recibido:  String(row.getCell(2).value ?? '').trim(),
       local,
       cantidad:  Number(row.getCell(4).value ?? 0),
       remitente: String(row.getCell(5).value ?? ''),
+      ...(momento ? { momento } : {}),
     });
   });
   return registros;
@@ -87,10 +97,10 @@ function escribirDatos(wb: ExcelJS.Workbook, registros: Registro[]): void {
   ws.columns = COLUMNAS_DATOS;
 
   const ordenados = [...registros].sort((a, b) => {
-    // Jornada primero, y dentro de ella el momento real: una carga de las
-    // 02:00 va despues de una de las 22:00 de la misma jornada.
-    const fa = aClave(deTexto(a.fecha)) + ' ' + claveCronologica(a.recibido);
-    const fb = aClave(deTexto(b.fecha)) + ' ' + claveCronologica(b.recibido);
+    // Jornada primero, y dentro de ella el momento del conteo: una carga de
+    // las 02:00 va despues de una de las 22:00 de la misma jornada.
+    const fa = aClave(deTexto(a.fecha)) + ' ' + claveCronologica(momentoDe(a));
+    const fb = aClave(deTexto(b.fecha)) + ' ' + claveCronologica(momentoDe(b));
     return fa === fb ? a.local.localeCompare(b.local) : fa.localeCompare(fb);
   });
 
@@ -189,6 +199,7 @@ async function procesar(relevamiento: Relevamiento): Promise<void> {
       local:     local.nombre,
       cantidad:  local.cantidad,
       remitente: relevamiento.remitente,
+      ...(relevamiento.momento ? { momento: relevamiento.momento } : {}),
     });
   }
 

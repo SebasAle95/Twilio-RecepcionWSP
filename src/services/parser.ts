@@ -1,22 +1,11 @@
 import { LocalConcurrencia, Relevamiento } from '../types/relevamiento';
 import { matchearLocal } from './fuzzy';
-import { hoy, fechaCalendario, aTexto } from './vistas';
+import { hoy, fechaCalendario, aTexto, HORA_CORTE } from './vistas';
 
 function esRelevamiento(texto: string): boolean {
   return texto.toUpperCase().includes('RELEVAMIENTO');
 }
 
-/**
- * A que jornada corresponde el mensaje.
- *
- * Con una fecha escrita en el texto la carga es retroactiva: va a ese dia.
- * Sin fecha va a la jornada en curso, que pasada la medianoche sigue siendo
- * la que arranco la manana anterior.
- *
- * Una fecha mal escrita no se puede consultar con quien la mando —el sistema
- * no responde mensajes— asi que ante la duda se prefiere la jornada en curso,
- * que es visible en el panel, antes que un dia lejano donde el dato se pierde.
- */
 /**
  * Fecha precedida por la palabra "fecha": la forma recomendada de pedirla.
  *
@@ -33,6 +22,17 @@ const FECHA_CON_PALABRA = /fecha\s*:?\s*(\d{1,2})\D(\d{1,2})\D(\d{2,4})/i;
  */
 const FECHA_SUELTA = /(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})/;
 
+/**
+ * A que jornada corresponde el mensaje.
+ *
+ * Con una fecha escrita en el texto la carga es retroactiva: va a ese dia.
+ * Sin fecha va a la jornada en curso, que pasada la medianoche sigue siendo
+ * la que arranco la manana anterior.
+ *
+ * Una fecha mal escrita no se puede consultar con quien la mando —el sistema
+ * no responde mensajes— asi que ante la duda se prefiere la jornada en curso,
+ * que es visible en el panel, antes que un dia lejano donde el dato se pierde.
+ */
 function extraerFecha(texto: string): Date {
   const jornada = hoy();
 
@@ -68,10 +68,47 @@ function extraerFecha(texto: string): Date {
   return fecha;
 }
 
+/**
+ * Hora declarada con "hora HH:MM". Acepta 24 horas y tambien am/pm.
+ * Los minutos son opcionales: "hora 13" vale igual que "hora 13:00".
+ */
+const HORA_DECLARADA = /hora\s*:?\s*(\d{1,2})(?:[:.](\d{2}))?\s*(a\.?m\.?|p\.?m\.?)?/i;
+
+/**
+ * A que momento corresponde la carga, si el mensaje lo declara.
+ *
+ * Devuelve "DD-MM-YYYY HH:MM:SS" ubicado en la jornada `fecha`. Una hora
+ * anterior al corte cae en el dia calendario siguiente, porque las 02:00 de
+ * una jornada ocurren despues de la medianoche.
+ */
+function extraerMomento(texto: string, fecha: Date): string | undefined {
+  const m = texto.match(HORA_DECLARADA);
+  if (!m) return undefined;
+
+  let hora = Number(m[1]);
+  const min = m[2] ? Number(m[2]) : 0;
+  const sufijo = m[3]?.toLowerCase().replace(/\./g, '');
+
+  if (sufijo === 'pm' && hora < 12) hora += 12;
+  if (sufijo === 'am' && hora === 12) hora = 0;
+
+  if (hora > 23 || min > 59) {
+    console.warn(`Hora invalida en el mensaje: "${m[0]}". Se usa la hora de recepcion.`);
+    return undefined;
+  }
+
+  const dia = new Date(fecha);
+  if (hora < HORA_CORTE) dia.setDate(dia.getDate() + 1);
+
+  const dosDigitos = (n: number) => String(n).padStart(2, '0');
+  return `${aTexto(dia)} ${dosDigitos(hora)}:${dosDigitos(min)}:00`;
+}
+
 export function parsearRelevamiento(texto: string, remitente: string): Relevamiento | null {
   if (!esRelevamiento(texto)) return null;
 
   const fecha = extraerFecha(texto);
+  const momento = extraerMomento(texto, fecha);
   const locales: LocalConcurrencia[] = [];
 
   const lineas = texto.split('\n').map(l => l.trim()).filter(Boolean);
@@ -94,5 +131,5 @@ export function parsearRelevamiento(texto: string, remitente: string): Relevamie
 
   if (locales.length === 0) return null;
 
-  return { fecha, remitente, locales, textoOriginal: texto };
+  return { fecha, remitente, locales, textoOriginal: texto, momento };
 }
