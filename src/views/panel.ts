@@ -669,6 +669,13 @@ const CSS = `
   .gr-vista[hidden] { display: none; }
   .gr-wrap { position: relative; flex: 1; display: flex; flex-direction: column; padding: 1rem 1.15rem 0; }
 
+  /* Se arrastra para cambiar de periodo. pan-y deja el scroll vertical al
+     navegador y nos entrega solo el movimiento horizontal; sin user-select el
+     arrastre selecciona el texto de las etiquetas. */
+  .gr-wrap { cursor: grab; touch-action: pan-y; user-select: none; -webkit-user-select: none; }
+  .gr-wrap.arrastrando { will-change: transform; }
+  .gr-wrap.arrastrando, .gr-wrap.arrastrando * { cursor: grabbing; }
+
   /* El recuadro de dibujo. Los margenes dejan lugar a las etiquetas, que van
      por fuera: las del eje Y a la izquierda y las del eje X abajo. */
   .gr-grafico {
@@ -713,7 +720,7 @@ const CSS = `
     transform: translate(-50%, -50%);
     pointer-events: none;
   }
-  .zona { position: absolute; top: 0; bottom: 0; cursor: crosshair; }
+  .zona { position: absolute; top: 0; bottom: 0; }
 
   .tooltip {
     position: absolute;
@@ -1087,6 +1094,77 @@ const JS = (etiquetasMeses: string[], etiquetasGrafico: string[]) => `
     grSiguiente.addEventListener('click', function () { if (vistaGr > 0) mostrarVistaGr(vistaGr - 1); });
 
     mostrarVistaGr(0);
+
+    // ── Arrastrar el gráfico ──
+    // Tambien cambia de periodo, con el mouse o con el dedo. Hacia la derecha
+    // va al pasado: se mueve como una linea de tiempo que se agarra y se tira.
+    var sinAnimar = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+    function animar(el, cuadros, ms) {
+      if (!sinAnimar && el.animate) el.animate(cuadros, { duration: ms, easing: 'ease-out' });
+    }
+
+    vistasGr.forEach(function (vista) {
+      var wrap   = vista.querySelector('.gr-wrap');
+      var tip    = wrap.querySelector('.tooltip');
+      var cursor = wrap.querySelector('.cursor');
+      var toque  = null;   // { x, id, activo } mientras hay un puntero apretado
+
+      // El indice crece hacia el pasado: arrastrar a la derecha suma uno
+      function haciaDestino(dx) { return vistaGr + (dx > 0 ? 1 : -1); }
+      function hayDestino(dx)   { var d = haciaDestino(dx); return d >= 0 && d < vistasGr.length; }
+
+      wrap.addEventListener('pointerdown', function (e) {
+        if (e.pointerType === 'mouse' && e.button !== 0) return;
+        toque = { x: e.clientX, id: e.pointerId, activo: false };
+      });
+
+      wrap.addEventListener('pointermove', function (e) {
+        if (!toque || e.pointerId !== toque.id) return;
+        var dx = e.clientX - toque.x;
+
+        if (!toque.activo) {
+          if (Math.abs(dx) < 5) return;          // todavia es un clic, no un arrastre
+          toque.activo = true;
+          try { wrap.setPointerCapture(e.pointerId); } catch (err) {}
+          wrap.classList.add('arrastrando');
+          tip.hidden = true;                      // el cartel no acompaña al arrastre
+          cursor.hidden = true;
+        }
+
+        // Pasados los extremos no hay mas datos: el grafico opone resistencia
+        wrap.style.transform = 'translateX(' + (hayDestino(dx) ? dx : dx * 0.25) + 'px)';
+      });
+
+      function soltar(e, cancelado) {
+        if (!toque || e.pointerId !== toque.id) return;
+        var activo = toque.activo, dx = e.clientX - toque.x;
+        toque = null;
+        if (!activo) return;
+
+        wrap.classList.remove('arrastrando');
+        var actual = wrap.style.transform;
+        wrap.style.transform = '';
+
+        // Hay que arrastrar un tramo razonable: un roce no cambia de periodo
+        var umbral = Math.max(40, Math.min(90, wrap.offsetWidth * 0.15));
+
+        if (!cancelado && Math.abs(dx) >= umbral && hayDestino(dx)) {
+          var destino = haciaDestino(dx);
+          mostrarVistaGr(destino);
+          // El periodo nuevo entra desde el lado contrario al que se arrastro
+          animar(vistasGr[destino].querySelector('.gr-wrap'), [
+            { transform: 'translateX(' + (dx > 0 ? -40 : 40) + 'px)', opacity: 0 },
+            { transform: 'none', opacity: 1 },
+          ], 200);
+        } else {
+          animar(wrap, [{ transform: actual }, { transform: 'none' }], 160);   // vuelve a su lugar
+        }
+      }
+
+      wrap.addEventListener('pointerup',     function (e) { soltar(e, false); });
+      wrap.addEventListener('pointercancel', function (e) { soltar(e, true); });
+    });
   }
 
   // ── Calendario ──
