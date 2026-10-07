@@ -2,6 +2,7 @@ import ExcelJS from 'exceljs';
 import path from 'path';
 import fs from 'fs';
 import { Relevamiento } from '../types/relevamiento';
+import { esLineaDeFechaOHora } from './parser';
 import {
   Registro, Vista, VistaDiaria,
   aTexto, ahoraConHora, aClave, deTexto, claveCronologica, momentoDe,
@@ -59,6 +60,11 @@ function leerDatos(wb: ExcelJS.Workbook): Registro[] {
     const fecha = String(row.getCell(1).value ?? '').trim();
     const local = String(row.getCell(3).value ?? '').trim();
     if (!fecha || !local) return;
+
+    // Cargas viejas guardaron la linea "Fecha ... Hora ..." como si fuera un
+    // local. Se descartan al leer, y como cada escritura reconstruye la hoja
+    // desde esta lectura, desaparecen del archivo con la proxima carga.
+    if (esLineaDeFechaOHora(local)) return;
 
     // Los registros anteriores a esta columna la traen vacia; ahi el momento
     // de la carga es la hora en que llego el mensaje.

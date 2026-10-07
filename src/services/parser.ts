@@ -1,6 +1,6 @@
 import { LocalConcurrencia, Relevamiento } from '../types/relevamiento';
 import { matchearLocal } from './fuzzy';
-import { hoy, fechaCalendario, aTexto, HORA_CORTE } from './vistas';
+import { hoy, fechaCalendario, aTexto, HORA_CORTE, PRIMER_DIA } from './vistas';
 
 function esRelevamiento(texto: string): boolean {
   return texto.toUpperCase().includes('RELEVAMIENTO');
@@ -65,6 +65,13 @@ function extraerFecha(texto: string): Date {
     return jornada;
   }
 
+  // Ni antes del inicio del relevamiento: un año mal tipeado ("01/06/25")
+  // mandaria la carga a un periodo que el panel no muestra
+  if (fecha.getTime() < PRIMER_DIA.getTime()) {
+    console.warn(`Fecha anterior al ${aTexto(PRIMER_DIA)}: "${m[0]}". Se usa la jornada en curso.`);
+    return jornada;
+  }
+
   return fecha;
 }
 
@@ -104,6 +111,19 @@ function extraerMomento(texto: string, fecha: Date): string | undefined {
   return `${aTexto(dia)} ${dosDigitos(hora)}:${dosDigitos(min)}:00`;
 }
 
+/**
+ * Una linea que declara la fecha o la hora de la carga, no un local.
+ *
+ * "Fecha 01/06/26 Hora 11:00" en una linea propia termina en ":00", asi que el
+ * patron "Local: N" la toma por un local con 0 personas. Ese local falso
+ * aparece despues como una fila mas en todas las tablas.
+ */
+const FECHA_U_HORA = /\b(fecha|hora)\b/i;
+
+export function esLineaDeFechaOHora(nombre: string): boolean {
+  return FECHA_U_HORA.test(nombre);
+}
+
 export function parsearRelevamiento(texto: string, remitente: string): Relevamiento | null {
   if (!esRelevamiento(texto)) return null;
 
@@ -121,8 +141,10 @@ export function parsearRelevamiento(texto: string, remitente: string): Relevamie
     const nombreOriginal = match[1]!.trim();
     const cantidad = parseInt(match[2]!, 10);
 
-    // Ignorar la línea de encabezado "RELEVAMIENTO cada LOCAL"
+    // Ignorar la línea de encabezado "RELEVAMIENTO cada LOCAL" y las que
+    // declaran la fecha o la hora, que ya se leyeron más arriba
     if (nombreOriginal.toUpperCase().includes('RELEVAMIENTO')) continue;
+    if (esLineaDeFechaOHora(nombreOriginal)) continue;
 
     const nombre = matchearLocal(nombreOriginal);
 

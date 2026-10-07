@@ -135,6 +135,13 @@ export function aTexto(f: Date): string {
 export const HORA_CORTE = Number(process.env.HORA_CORTE_JORNADA ?? 6);
 
 /**
+ * Primer dia del relevamiento: hasta aca se aceptan cargas retroactivas, y es
+ * donde llega el grafico al navegar hacia atras. Una fecha anterior casi
+ * seguro es un año mal tipeado ("01/06/25"), no una carga real.
+ */
+export const PRIMER_DIA = new Date(2026, 0, 1);
+
+/**
  * A que jornada pertenece un instante.
  * Devuelve la fecha a medianoche local, para que cierre el ida y vuelta con
  * `aTexto` / `deTexto`.
@@ -413,12 +420,21 @@ export interface PuntoTendencia {
   total:    number;
 }
 
+/** Un dia por punto, para navegar el grafico mes a mes. */
+export interface SerieMes {
+  clave:    string;  // YYYY-MM
+  etiqueta: string;  // "Septiembre 2026"
+  puntos:   PuntoTendencia[];
+}
+
 export interface Resumen {
   hoy:       Comparado & { cargas: number };
   semana:    Comparado;
   mes:       Comparado;
   /** Ultimos 14 dias, incluidos los que no tuvieron carga. */
   tendencia: PuntoTendencia[];
+  /** Del mes en curso hasta el inicio del relevamiento, el mas reciente primero. */
+  meses:     SerieMes[];
   /** Locales del mes en curso, de mayor a menor. */
   ranking:   { local: string; total: number }[];
 }
@@ -481,6 +497,36 @@ export function resumen(registros: Registro[]): Resumen {
     });
   }
 
+  // ── Serie diaria de cada mes, para navegar el grafico hacia atras ──
+  const porDia = new Map<string, number>();
+  for (const r of registros) {
+    const c = aClave(deTexto(r.fecha));
+    porDia.set(c, (porDia.get(c) ?? 0) + r.cantidad);
+  }
+
+  // Hasta el inicio del relevamiento, o antes si ya hay datos mas viejos
+  const desde     = [aClave(PRIMER_DIA), ...porDia.keys()].sort()[0];
+  const primerMes = new Date(Number(desde.slice(0, 4)), Number(desde.slice(5, 7)) - 1, 1);
+
+  const meses: SerieMes[] = [];
+  for (let m = iniMes; m >= primerMes; m = new Date(m.getFullYear(), m.getMonth() - 1, 1)) {
+    const anio = m.getFullYear();
+    const mes  = m.getMonth();
+
+    // El mes en curso llega hasta hoy: los dias que faltan no son ceros, son futuro
+    const ultimo = m.getTime() === iniMes.getTime()
+      ? ahora.getDate()
+      : new Date(anio, mes + 1, 0).getDate();
+
+    const puntos: PuntoTendencia[] = [];
+    for (let d = 1; d <= ultimo; d++) {
+      const clave = `${anio}-${pad(mes + 1)}-${pad(d)}`;
+      puntos.push({ clave, etiqueta: `${pad(d)}/${pad(mes + 1)}`, total: porDia.get(clave) ?? 0 });
+    }
+
+    meses.push({ clave: `${anio}-${pad(mes + 1)}`, etiqueta: `${MESES[mes]} ${anio}`, puntos });
+  }
+
   // ── Ranking de locales del mes en curso ──
   const delMes = registros.filter(r => {
     const c = aClave(deTexto(r.fecha));
@@ -519,6 +565,7 @@ export function resumen(registros: Registro[]): Resumen {
       variacion: variacionEntre(totalMes, totalMesPrev),
     },
     tendencia,
+    meses,
     ranking,
   };
 }

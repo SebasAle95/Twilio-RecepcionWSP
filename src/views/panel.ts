@@ -75,25 +75,29 @@ function escalaBonita(max: number): { tope: number; ticks: number[] } {
   return { tope, ticks };
 }
 
-function grafico(puntos: PuntoTendencia[]): string {
-  const W = 760, H = 220;
-  // ML tiene que alcanzar para la etiqueta mas ancha con la fuente mas grande
-  // (en movil sube a 18px del viewBox), o se recorta contra el borde.
-  const ML = 72, MR = 14, MT = 14, MB = 30;
-  const ancho = W - ML - MR;
-  const alto  = H - MT - MB;
-
+/**
+ * Todo va en porcentaje del area de dibujo, no en pixeles.
+ *
+ * La tarjeta del grafico se estira hasta la altura del ranking de al lado, y
+ * un SVG de proporcion fija no puede llenar un alto que no conoce sin
+ * deformar el texto. Asi que el SVG lleva solo lo que se puede estirar sin
+ * problema (grilla, area y linea) y el texto y los marcadores son HTML
+ * ubicado con porcentajes sobre el mismo recuadro.
+ */
+function grafico(puntos: PuntoTendencia[], periodo: string): string {
   const { tope, ticks } = escalaBonita(Math.max(...puntos.map(p => p.total)));
 
-  const x = (i: number) => ML + (puntos.length === 1 ? ancho / 2 : (i / (puntos.length - 1)) * ancho);
-  const y = (v: number) => MT + alto - (v / tope) * alto;
+  const x = (i: number) => (puntos.length === 1 ? 50 : (i / (puntos.length - 1)) * 100);
+  const y = (v: number) => 100 - (v / tope) * 100;
+  const pct = (n: number) => n.toFixed(2);
 
-  const linea = puntos.map((p, i) => `${i === 0 ? 'M' : 'L'}${x(i).toFixed(1)},${y(p.total).toFixed(1)}`).join(' ');
-  const area  = `${linea} L${x(puntos.length - 1).toFixed(1)},${MT + alto} L${x(0).toFixed(1)},${MT + alto} Z`;
+  const linea = puntos.map((p, i) => `${i === 0 ? 'M' : 'L'}${pct(x(i))},${pct(y(p.total))}`).join(' ');
+  const area  = `${linea} L${pct(x(puntos.length - 1))},100 L${pct(x(0))},100 Z`;
 
-  const grillas = ticks.map(v => `
-      <line class="grid" x1="${ML}" y1="${y(v).toFixed(1)}" x2="${W - MR}" y2="${y(v).toFixed(1)}" />
-      <text class="tick-y" x="${ML - 10}" y="${(y(v) + 4).toFixed(1)}">${nf.format(v)}</text>`).join('');
+  const grillas = ticks.map(v =>
+    `<line class="grid" x1="0" y1="${pct(y(v))}" x2="100" y2="${pct(y(v))}" />`).join('');
+  const ticksY = ticks.map(v =>
+    `<span class="tick-y" style="top:${pct(y(v))}%">${nf.format(v)}</span>`).join('');
 
   // Etiquetas del eje X salteadas para que no se amontonen.
   // El ultimo dia siempre se rotula; si el anterior queda pegado, se descarta.
@@ -107,37 +111,57 @@ function grafico(puntos: PuntoTendencia[]): string {
   marcados.add(final);
 
   // Las de los extremos se anclan hacia adentro, o se cortan contra el borde.
-  // Va por clase: text-anchor puesto en CSS le gana al atributo del SVG.
   const ticksX = puntos.map((p, i) => {
     if (!marcados.has(i)) return '';
     const extremo = i === 0 ? ' inicio' : i === final ? ' fin' : '';
-    return `<text class="tick-x${extremo}" x="${x(i).toFixed(1)}" y="${H - 10}">${esc(p.etiqueta)}</text>`;
+    return `<span class="tick-x${extremo}" style="left:${pct(x(i))}%">${esc(p.etiqueta)}</span>`;
   }).join('');
 
   const ultimo = puntos.length - 1;
 
   // Zonas de hover: mas anchas que los puntos, para poder apuntarlas
-  const zonas = puntos.map((p, i) => {
-    const w = ancho / Math.max(puntos.length - 1, 1);
-    return `<rect class="zona" x="${(x(i) - w / 2).toFixed(1)}" y="${MT}" width="${w.toFixed(1)}" height="${alto}"
+  const w = 100 / Math.max(puntos.length - 1, 1);
+  const zonas = puntos.map((p, i) => `
+        <span class="zona" style="left:${pct(x(i) - w / 2)}%;width:${pct(w)}%"
               data-etiqueta="${esc(p.etiqueta)}" data-total="${p.total}"
-              data-cx="${x(i).toFixed(1)}" data-cy="${y(p.total).toFixed(1)}" />`;
-  }).join('');
+              data-x="${pct(x(i))}" data-y="${pct(y(p.total))}"></span>`).join('');
 
   return `
     <div class="gr-wrap">
-      <svg viewBox="0 0 ${W} ${H}" role="img"
-           aria-label="Personas por dia, ultimos ${puntos.length} dias">
-        ${grillas}
-        <path class="area"  d="${area}" />
-        <path class="linea" d="${linea}" />
-        <line class="cursor" x1="0" y1="${MT}" x2="0" y2="${MT + alto}" style="display:none" />
-        <circle class="punto-fin" cx="${x(ultimo).toFixed(1)}" cy="${y(puntos[ultimo].total).toFixed(1)}" r="4.5" />
+      <div class="gr-grafico" role="img" aria-label="Personas por dia, ${esc(periodo)}">
+        <svg class="gr-svg" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+          ${grillas}
+          <path class="area"  d="${area}" />
+          <path class="linea" d="${linea}" />
+        </svg>
+        ${ticksY}
         ${ticksX}
+        <span class="cursor" hidden></span>
+        <span class="punto-fin" style="left:${pct(x(ultimo))}%;top:${pct(y(puntos[ultimo].total))}%"></span>
         ${zonas}
-      </svg>
+      </div>
       <div class="tooltip" hidden></div>
     </div>`;
+}
+
+/**
+ * Todas las vistas del grafico, una sobre otra y con solo la primera visible.
+ * El script del cliente las alterna: no hace falta pedirle nada al servidor.
+ *
+ * La primera son los ultimos 14 dias; las que siguen son cada mes, del actual
+ * hacia atras, asi que el indice crece hacia el pasado.
+ */
+function graficos(r: Resumen): { html: string; etiquetas: string[] } {
+  const vistas = [
+    { etiqueta: 'Últimos 14 días', puntos: r.tendencia },
+    ...r.meses.map(m => ({ etiqueta: m.etiqueta, puntos: m.puntos })),
+  ];
+
+  const html = vistas.map((v, k) =>
+    `<div class="gr-vista"${k === 0 ? '' : ' hidden'}>${grafico(v.puntos, v.etiqueta)}</div>`,
+  ).join('');
+
+  return { html, etiquetas: vistas.map(v => v.etiqueta) };
 }
 
 // ── Ranking de locales ───────────────────────────────────────────────────────
@@ -525,6 +549,24 @@ const CSS = `
   .tarjeta-cab p { margin: 0; font-size: .8rem; color: var(--ink-2); }
   .posicion { color: var(--muted); }
 
+  /* Encabezado del grafico: el titulo a la izquierda, el selector de periodo a la derecha */
+  .gr-cab { align-items: center; padding-block: .5rem; }
+  .gr-cab h2 {
+    margin: 0;
+    font-size: .74rem;
+    font-weight: 640;
+    text-transform: uppercase;
+    letter-spacing: .07em;
+    color: var(--ink-2);
+  }
+  .gr-titulo {
+    min-width: 8.5rem;
+    text-align: center;
+    font-size: .85rem;
+    font-weight: 640;
+    font-variant-numeric: tabular-nums;
+  }
+
   /* Navegacion entre jornadas */
   .nav-dia { display: flex; align-items: center; gap: .5rem; }
   .nav-btn {
@@ -541,9 +583,11 @@ const CSS = `
     line-height: 1;
     text-decoration: none;
   }
-  a.nav-btn:hover { background: var(--accent-10); }
-  a.nav-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-  .nav-btn[aria-disabled="true"] { opacity: .3; }
+  a.nav-btn:hover, button.nav-btn:hover:not(:disabled) { background: var(--accent-10); }
+  a.nav-btn:focus-visible, button.nav-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .nav-btn[aria-disabled="true"], button.nav-btn:disabled { opacity: .3; }
+  button.nav-btn { appearance: none; padding: 0; font-family: inherit; cursor: pointer; }
+  button.nav-btn:disabled { cursor: default; }
 
   h2.seccion {
     margin: 0;
@@ -608,44 +652,68 @@ const CSS = `
   }
 
   /* ── Grafico ── */
-  /* align-items:start — si no, la tarjeta del grafico se estira a la altura
-     del ranking y queda un hueco muerto debajo de la linea */
+  /* Las dos tarjetas miden lo mismo: la del grafico se estira hasta la altura
+     del ranking y el area de dibujo absorbe el sobrante. Con el ranking vacio
+     no se estira nada, o una tarjeta de una linea quedaria del alto del grafico. */
   .paneles {
     display: grid;
     grid-template-columns: 1.5fr 1fr;
-    align-items: start;
+    align-items: stretch;
     gap: 1.25rem;
   }
+  .paneles > .sin-datos { align-self: start; }
   @media (max-width: 900px) { .paneles { grid-template-columns: 1fr; } }
 
-  .gr-wrap { position: relative; padding: 1rem 1.15rem 1.15rem; }
-  /* Alto automatico: estirar el viewBox deformaria el texto y los trazos */
-  .gr-wrap svg { width: 100%; height: auto; display: block; }
+  .tarjeta-grafico { display: flex; flex-direction: column; }
+  .gr-vista { flex: 1; display: flex; flex-direction: column; }
+  .gr-vista[hidden] { display: none; }
+  .gr-wrap { position: relative; flex: 1; display: flex; flex-direction: column; padding: 1rem 1.15rem 0; }
 
-  .grid   { stroke: var(--grid); stroke-width: 1; }
+  /* El recuadro de dibujo. Los margenes dejan lugar a las etiquetas, que van
+     por fuera: las del eje Y a la izquierda y las del eje X abajo. */
+  .gr-grafico {
+    position: relative;
+    flex: 1;
+    min-height: 190px;
+    margin: .5rem .6rem 2.4rem 3.2rem;
+  }
+  /* preserveAspectRatio="none" estira el dibujo al recuadro; non-scaling-stroke
+     evita que el trazo se deforme con el. overflow visible: una linea sobre el
+     borde del recuadro no se corta a la mitad. */
+  .gr-svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+
+  .grid   { stroke: var(--grid); stroke-width: 1; vector-effect: non-scaling-stroke; }
   .area   { fill: var(--accent-10); stroke: none; }
-  .linea  { fill: none; stroke: var(--accent); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
-  .cursor { stroke: var(--axis); stroke-width: 1; }
-  .punto-fin { fill: var(--accent); stroke: var(--surface); stroke-width: 2; }
+  .linea  {
+    fill: none; stroke: var(--accent); stroke-width: 2;
+    stroke-linejoin: round; stroke-linecap: round; vector-effect: non-scaling-stroke;
+  }
+
   .tick-y, .tick-x {
-    fill: var(--muted);
+    position: absolute;
+    color: var(--muted);
     font-size: 11px;
-    font-family: system-ui, sans-serif;
+    line-height: 1;
+    white-space: nowrap;
     font-variant-numeric: tabular-nums;
   }
-  .tick-y { text-anchor: end; }
-  .tick-x { text-anchor: middle; }
-  .tick-x.inicio { text-anchor: start; }
-  .tick-x.fin    { text-anchor: end; }
-  .zona   { fill: transparent; cursor: crosshair; }
+  .tick-y { right: 100%; padding-right: .65rem; transform: translateY(-50%); }
+  .tick-x { top: 100%; padding-top: .55rem; transform: translateX(-50%); }
+  .tick-x.inicio { transform: none; }
+  .tick-x.fin    { transform: translateX(-100%); }
 
-  /*
-   * El texto del SVG escala con el viewBox: en una pantalla angosta el grafico
-   * se dibuja a menos de la mitad y 11px se renderizan como 5px. Se compensa
-   * agrandando la fuente en unidades del viewBox.
-   */
-  @media (max-width: 900px) { .tick-y, .tick-x { font-size: 14px; } }
-  @media (max-width: 600px) { .tick-y, .tick-x { font-size: 18px; } }
+  .cursor { position: absolute; top: 0; bottom: 0; width: 1px; margin-left: -.5px; background: var(--axis); pointer-events: none; }
+  .punto-fin {
+    position: absolute;
+    width: 12px; height: 12px;
+    box-sizing: border-box;
+    border: 2px solid var(--surface);
+    border-radius: 50%;
+    background: var(--accent);
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+  }
+  .zona { position: absolute; top: 0; bottom: 0; cursor: crosshair; }
 
   .tooltip {
     position: absolute;
@@ -919,7 +987,7 @@ const JS_TEMA = `
   } catch (e) {}
 `;
 
-const JS = (etiquetasMeses: string[]) => `
+const JS = (etiquetasMeses: string[], etiquetasGrafico: string[]) => `
   // ── Tema ──
   var botonesTema = document.querySelectorAll('.tema button');
 
@@ -963,34 +1031,62 @@ const JS = (etiquetasMeses: string[]) => `
     if (guardada && document.getElementById(guardada)) abrirTab(guardada);
   } catch (e) {}
 
-  // ── Tooltip del gráfico ──
-  var wrap = document.querySelector('.gr-wrap');
-  if (wrap) {
-    var svg     = wrap.querySelector('svg');
-    var tip     = wrap.querySelector('.tooltip');
-    var cursor  = wrap.querySelector('.cursor');
+  // ── Tooltip del gráfico (hay uno por periodo) ──
+  document.querySelectorAll('.gr-wrap').forEach(function (wrap) {
+    var area   = wrap.querySelector('.gr-grafico');
+    var tip    = wrap.querySelector('.tooltip');
+    var cursor = wrap.querySelector('.cursor');
 
     wrap.querySelectorAll('.zona').forEach(function (z) {
       z.addEventListener('mouseenter', function () {
-        var cx = parseFloat(z.dataset.cx), cy = parseFloat(z.dataset.cy);
-        var caja = svg.getBoundingClientRect();
-        var vb = svg.viewBox.baseVal;
+        // Posicion del punto, en porcentaje del recuadro de dibujo
+        var px = parseFloat(z.dataset.x), py = parseFloat(z.dataset.y);
 
-        cursor.setAttribute('x1', cx);
-        cursor.setAttribute('x2', cx);
-        cursor.style.display = '';
+        cursor.style.left = px + '%';
+        cursor.hidden = false;
 
-        tip.innerHTML = z.dataset.etiqueta + ' · <b>' + z.dataset.total + '</b> personas';
+        tip.innerHTML = z.dataset.etiqueta + ' · <b>' + Number(z.dataset.total).toLocaleString('es-AR') + '</b> personas';
         tip.hidden = false;
-        tip.style.left = (svg.offsetLeft + (cx / vb.width) * caja.width) + 'px';
-        tip.style.top  = (svg.offsetTop + (cy / vb.height) * caja.height - 8) + 'px';
+
+        // El cartel va dentro de .gr-wrap: se mide contra ese contenedor
+        var base  = wrap.getBoundingClientRect();
+        var caja  = area.getBoundingClientRect();
+        var mitad = tip.offsetWidth / 2;
+        var izq   = caja.left - base.left + (px / 100) * caja.width;
+        // Sin el tope el cartel se corta contra el borde en los extremos
+        tip.style.left = Math.min(Math.max(izq, mitad), base.width - mitad) + 'px';
+        tip.style.top  = (caja.top - base.top + (py / 100) * caja.height - 10) + 'px';
       });
     });
 
     wrap.addEventListener('mouseleave', function () {
       tip.hidden = true;
-      cursor.style.display = 'none';
+      cursor.hidden = true;
     });
+  });
+
+  // ── Periodo del gráfico ──
+  var vistasGr = [].slice.call(document.querySelectorAll('.gr-vista'));
+
+  if (vistasGr.length) {
+    var grAnterior  = document.getElementById('gr-anterior');
+    var grSiguiente = document.getElementById('gr-siguiente');
+    var grTitulo    = document.getElementById('gr-titulo');
+    var etiquetasGr = ${JSON.stringify(etiquetasGrafico)};
+    var vistaGr = 0;
+
+    function mostrarVistaGr(nueva) {
+      vistaGr = nueva;
+      vistasGr.forEach(function (v, k) { v.hidden = k !== vistaGr; });
+      grTitulo.textContent = etiquetasGr[vistaGr];
+      grSiguiente.disabled = vistaGr === 0;                    // el indice crece hacia el pasado
+      grAnterior.disabled  = vistaGr === vistasGr.length - 1;
+    }
+
+    grAnterior.addEventListener('click',  function () { if (vistaGr < vistasGr.length - 1) mostrarVistaGr(vistaGr + 1); });
+    grSiguiente.addEventListener('click', function () { if (vistaGr > 0) mostrarVistaGr(vistaGr - 1); });
+
+    mostrarVistaGr(0);
   }
 
   // ── Calendario ──
@@ -1080,6 +1176,7 @@ export function renderPanel(d: Datos): string {
   const q = encodeURIComponent(d.clave);
   const hayDatos = d.totalRegistros > 0;
   const r = d.resumen;
+  const gr = graficos(r);
 
   const meta = hayDatos
     ? `${nf.format(d.totalRegistros)} registros` + (d.ultimaCarga ? ` · última carga ${esc(d.ultimaCarga)}` : '')
@@ -1115,12 +1212,19 @@ export function renderPanel(d: Datos): string {
     </div>
 
     <div class="paneles">
-      <section class="tarjeta">
-        <h2 class="seccion">Personas por día · últimos 14 días</h2>
-        ${grafico(r.tendencia)}
+      <section class="tarjeta tarjeta-grafico">
+        <header class="tarjeta-cab gr-cab">
+          <h2>Personas por día</h2>
+          <div class="nav-dia">
+            <button type="button" class="nav-btn" id="gr-anterior" aria-label="Período anterior">&#8249;</button>
+            <span class="gr-titulo" id="gr-titulo" aria-live="polite">${esc(gr.etiquetas[0])}</span>
+            <button type="button" class="nav-btn" id="gr-siguiente" aria-label="Período siguiente" disabled>&#8250;</button>
+          </div>
+        </header>
+        ${gr.html}
       </section>
 
-      <section class="tarjeta">
+      <section class="tarjeta${r.ranking.length ? '' : ' sin-datos'}">
         <h2 class="seccion">Locales · ${esc(r.mes.etiqueta)}</h2>
         ${ranking(r.ranking)}
       </section>
@@ -1170,7 +1274,7 @@ export function renderPanel(d: Datos): string {
     </header>
     ${cuerpo}
   </div>
-  <script>${JS(d.calendario.map(m => m.etiqueta))}</script>
+  <script>${JS(d.calendario.map(m => m.etiqueta), gr.etiquetas)}</script>
 </body>
 </html>`;
 }
